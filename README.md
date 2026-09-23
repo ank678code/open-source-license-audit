@@ -1,4 +1,4 @@
-# open-source-license-audit
+﻿# open-source-license-audit
 
 开源许可证合规检查 + 《开源及第三方资源使用清单》生成器。
 
@@ -9,7 +9,7 @@
 绝大多数团队并不知道自己的依赖里有传染性许可。我们实测了一个真实项目：
 
 > [OpenCompass](https://github.com/open-compass/opencompass) 自身是 **Apache-2.0** 许可，但它的直接依赖里有两个强传染许可包：
-> - `fuzzywuzzy` → **GPL-3.0-only**
+> - `fuzzywuzzy` → **GPL-2.0-only**
 > - `python-Levenshtein` → **GPL-2.0-or-later**
 
 这两个包在中文 NLP 项目里被大量引用。现有工具（ScanCode、FOSSA 等）偏企业级、面向整个仓库而非依赖清单，也不会输出中文的合规字段，学生用不起来。
@@ -21,9 +21,11 @@
 | 现象 | 实际情况 | 处理方式 |
 |---|---|---|
 | `pandas` 被误判为 GPL | 它的 `license` 字段是 **61,643 字符**的完整许可证正文，正文里顺带提到了 "GNU General Public License" | 四级可信度解析链：`license_expression` > trove classifier > license 首行 > 截断兜底，全文关键词匹配被彻底禁用 |
-| `numpy` 的许可证 | 值是复合表达式 `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` | 按 AND/OR/WITH 拆分逐项归一化，类别取最严格项 |
+| `numpy` 的许可证 | 值是复合表达式 `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` | 按 AND/OR/WITH 拆分逐项归一化；AND 须全部满足取最严格项，OR 可任选其一取最宽松项 |
 | `psycopg2` 无法识别 | trove classifier 写的是 `GNU Library or Lesser General Public License (LGPL)`——自然语言里的 " or " 不是 SPDX 运算符 | 增加表达式形态判定，只在分隔符两侧都是裸标识符时才拆分 |
-| `mysqlclient` 版本判错 | 是 `GPL-2.0-or-later`，与 `-only` 的兼容性含义不同 | 保留 `-or-later` / `+` 后缀语义 |
+| `mysqlclient` 版本判错 | 是 `GPL-2.0-or-later`，与 `-only` 的兼容性含义不同 | 保留 `-or-later` / `+` / `v2 or later` 后缀语义 |
+| 无版本号的许可证名 | trove 只写 `GNU General Public License`（不带版本），臆断为 3.0 会判错版本 | 无版本信息一律归入 `GPL-unknown` / `LGPL-unknown`，标为待人工确认，不假装确定 |
+| 双许可写法 | npm / PyPI 常见 `MIT OR Apache-2.0`、`GPL-2.0-only OR MIT` | 保留 `OR` 语义：任选其一时按最宽松项判定，不再误报为强传染 |
 | 写法五花八门 | `PyQt5` 写 `"GPL v3"`、`chardet` 写 `"0BSD"`、`protobuf` 写 `"3-Clause BSD License"`（词序颠倒）、`rouge` 只写 `"LICENCE.txt"` | 逐一补充模式；对真的没有信息的（如 `LICENCE.txt`）明确标为"待人工确认"，不假装确定 |
 | 包名 ≠ import 名 | `scikit-learn` 实际 import `sklearn`，`PyYAML` 实际 import `yaml`，`pymupdf` 新旧版分别是 `pymupdf` / `fitz` | 维护别名表 + 启发式推断，避免把"已经用了"误判成"没用到" |
 
@@ -42,9 +44,14 @@
 | deepset-ai/haystack | Apache-2.0 | 18 | 100% | 88.9% | `tqdm`(MPL-2.0 AND MIT) |
 | modelscope/modelscope | Apache-2.0 | 7 | 100% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
 
-**整体识别率 96.5%，高可信度判定占比 83.2%，8 个项目里 7 个含传染性依赖。**
+**整体识别率 97.5%，高可信度判定占比 86.7%，8 个项目里 7 个含传染性依赖。**
 
-复现：`python scan_projects.py`（需要 GitHub 访问权限，见 `scan_projects.py` 顶部的连接器说明）
+复现：`python scan_projects.py --jobs 16`
+
+- 只依赖 Python 标准库直连 GitHub REST API，**不需要任何本地连接器脚本或第三方库**
+- 可选：设置 `GITHUB_TOKEN` 环境变量可提升配额上限（匿名接口 60 次/小时也够一次完整扫描）
+- 单次完整扫描约 2—4 分钟（并发抓取；串行约需 20—30 分钟）
+- 结果写入 `scan_summary.md` / `scan_summary.json`，逐项目报告在 `scan/` 下
 
 ## 架构
 
@@ -89,7 +96,10 @@ python license_audit.py --requirements requirements.txt --project-license MIT
 # 也支持 pyproject.toml（PEP 621 / PEP 735 / Poetry）与 package.json
 python license_audit.py --pyproject pyproject.toml --project-license Apache-2.0
 
-# 2. 补全语义字段（使用方式、自主开发边界等）
+# 元数据抓取并发（零第三方依赖，纯标准库线程池）——依赖多时提速约 8—10 倍
+python license_audit.py --requirements requirements.txt --project-license MIT --jobs 16
+
+# 2. 补全语义字段（使用方式、自主开发边界等），并直接产出竞赛要求的清单
 python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 ```
 
@@ -97,10 +107,14 @@ python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 
 ```
 [1/4] 解析依赖清单：47 个直接依赖（来源 PyPI）
+     其中 3 个依赖为精确锁定版本，将按锁定版本查询许可证元数据
+     元数据抓取并发数：16
 [2/4] 获取许可证元数据：成功 47 / 共 47
 [3/4] 许可证类别分布：宽松许可 42，弱传染 2，强传染 2，未识别 1
 [4/4] 检出风险项：3 条（高 2 / 中 1）
 ```
+
+`--jobs` 只影响网络等待，判定逻辑仍是确定性的串行流程，结果与串行完全一致。
 
 ### Web 界面
 
@@ -146,11 +160,13 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 39 个用例：许可证归一化 + 兼容性判定 + 依赖清单解析
-python test_semantic.py   # 36 个用例：证据采集 + 防幻觉校验 + 回退行为
+python test_cases.py      # 138 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
+python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 75 个用例。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据。**
+共 **225 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
+`contest/` 被当成测试目录等。
 
 ## 已知限制
 
@@ -159,7 +175,7 @@ python test_semantic.py   # 36 个用例：证据采集 + 防幻觉校验 + 回�
 - **必须按生态查询**：npm 依赖不能按 PyPI 查，否则会命中同名的无关包（实测 `husky` 曾因此被误判为 LGPL）
 - **只覆盖 Python / npm 生态**：Maven、Go modules 尚未支持
 - **不替代法律意见**：许可证兼容性判断基于常见实践，涉及商业分发请咨询专业人士
-- 元数据来自 PyPI / npm registry，会随包版本更新变化，历史结论建议定期重跑
+- 元数据来自 PyPI / npm registry，会随包版本更新变化；依赖清单中**精确锁定的版本**（`==1.2.3` / `1.2.3`）会按锁定版本查询，范围约束（`>=`、`^`、`~` 等）仍查最新版，建议定期重跑
 
 ## 贡献
 

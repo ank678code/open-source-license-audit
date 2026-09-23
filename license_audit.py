@@ -68,6 +68,7 @@ SPDX_PATTERNS = [
     (r"^Unlicense", "Unlicense"),
     (r"^CC0", "CC0-1.0"),
     (r"Public Domain|Historical Permission", "HPND"),
+    (r"^BlueOak", "BlueOak-1.0.0"),          # npm 生态常见，rimraf 等包在用
     (r"^zlib", "Zlib"),
     # 兜底：只写了家族名、没写版本号。类别可判定，但版本须人工确认，
     # 单列 -unknown 标识以免给出错误版本的确定性结论。
@@ -89,6 +90,7 @@ LICENSE_DB = {
     "Zlib":           ("permissive",        "保留版权与许可声明，不得用作者名义背书"),
     "0BSD":           ("permissive",        "无附加义务（放弃署名要求）"),
     "HPND":           ("permissive",        "保留版权与许可声明"),
+    "BlueOak-1.0.0":  ("permissive",        "保留版权与许可声明，含明确的专利授权"),
     "MPL-2.0":        ("weak-copyleft",     "MPL 覆盖的文件需以 MPL 开放源码"),
     "EPL-2.0":        ("weak-copyleft",     "EPL 覆盖的模块需以 EPL 开放源码"),
     "LGPL-2.0-only":  ("weak-copyleft",     "动态链接可用；修改库本体需以 LGPL 开放"),
@@ -335,6 +337,84 @@ def parse_package_json(path: Path):
                       list((d.get("devDependencies") or {}).keys())))
 
 
+_REQ_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)")
+
+
+def _name_of(spec):
+    m = _REQ_NAME.match(str(spec))
+    return m.group(1) if m else None
+
+
+def parse_pyproject(path: Path):
+    """解析 pyproject.toml 的依赖。
+
+    支持三种主流写法：
+      · PEP 621  [project] dependencies = [...] / optional-dependencies
+      · PEP 735  [dependency-groups]
+      · Poetry   [tool.poetry.dependencies] / [tool.poetry.group.*.dependencies]
+    """
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    out = set()
+    try:
+        import tomllib
+        d = tomllib.loads(raw)
+    except ImportError:                      # Python < 3.11 无 tomllib
+        return _parse_pyproject_regex(raw)
+    except Exception as e:
+        raise SystemExit(f"pyproject.toml 解析失败：{e}")
+
+    proj = d.get("project") or {}
+    for spec in proj.get("dependencies") or []:
+        n = _name_of(spec)
+        if n:
+            out.add(n)
+    for group in (proj.get("optional-dependencies") or {}).values():
+        for spec in group or []:
+            n = _name_of(spec)
+            if n:
+                out.add(n)
+
+    for group in (d.get("dependency-groups") or {}).values():
+        for spec in group or []:
+            if isinstance(spec, str):
+                n = _name_of(spec)
+                if n:
+                    out.add(n)
+
+    poetry = ((d.get("tool") or {}).get("poetry") or {})
+    for name in (poetry.get("dependencies") or {}):
+        if name.lower() != "python":
+            out.add(name)
+    for grp in (poetry.get("group") or {}).values():
+        for name in ((grp or {}).get("dependencies") or {}):
+            if name.lower() != "python":
+                out.add(name)
+    return sorted(out)
+
+
+def _parse_pyproject_regex(raw):
+    """无 tomllib 时的降级解析：够用即可，覆盖 requirements 数组的常见写法。"""
+    out = set()
+    in_deps = False
+    for line in raw.splitlines():
+        s = line.strip()
+        if re.match(r"^dependencies\s*=\s*\[", s):
+            in_deps = True
+            s = s.split("[", 1)[1]
+        if in_deps:
+            m = re.search(r"[\"']([^\"']+)[\"']", s)
+            if m:
+                n = _name_of(m.group(1))
+                if n:
+                    out.add(n)
+            if "]" in s:
+                in_deps = False
+        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.\-]*)\s*=\s*[\"{]", s)
+        if m and m.group(1).lower() != "python":
+            out.add(m.group(1))
+    return sorted(out)
+
+
 # ---------------------------------------------------------------- 冲突检测
 
 def detect_conflicts(project_license, records, transitive_limit=0):
@@ -452,6 +532,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--requirements")
     ap.add_argument("--package-json")
+    ap.add_argument("--pyproject")
     ap.add_argument("--packages", nargs="*")
     ap.add_argument("--project-license", default="MIT")
     ap.add_argument("--project-name", default="待填")
@@ -462,12 +543,14 @@ def main():
 
     if a.requirements:
         pkgs, source = parse_requirements(Path(a.requirements)), "PyPI"
+    elif a.pyproject:
+        pkgs, source = parse_pyproject(Path(a.pyproject)), "PyPI"
     elif a.package_json:
         pkgs, source = parse_package_json(Path(a.package_json)), "npm"
     elif a.packages:
         pkgs, source = a.packages, "PyPI"
     else:
-        ap.error("需要 --requirements / --package-json / --packages 之一")
+        ap.error("需要 --requirements / --pyproject / --package-json / --packages 之一")
 
     print(f"[1/4] 解析依赖清单：{len(pkgs)} 个直接依赖（来源 {source}）")
     records, findings = audit(pkgs, a.project_license, source, a.depth, a.transitive)

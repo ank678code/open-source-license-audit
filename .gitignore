@@ -13,3 +13,9 @@ report_*.md
 license_audit_report.*
 smoke_report.md
 req_lm_eval.txt
+
+# 批量扫描的中间产物（第三方项目的依赖清单，不宜再分发）
+scan/_probe*
+scan/*.report.md
+scan/*.report.json
+scan/*.requirements.txt

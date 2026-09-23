@@ -128,6 +128,10 @@ check("A21", '"2-Clause BSD License"（词序颠倒）应识别为 BSD-2-Clause'
 # A22 占位写法：rouge 的 license 字段只写了文件名。
 check("A22", '"LICENCE.txt" 等占位值应为 UNKNOWN',
       normalize_license("LICENCE.txt"), "UNKNOWN")
+# A23 npm 生态新许可证：rimraf 等包已改用 Blue Oak Model License。
+check("A23", '"BlueOak-1.0.0" 应识别为宽松许可',
+      (normalize_license("BlueOak-1.0.0"), category_of("BlueOak-1.0.0")),
+      ("BlueOak-1.0.0", "permissive"))
 
 
 # ============================================================ B. 兼容性冲突检测
@@ -187,6 +191,86 @@ check("B8", "元数据缺失的依赖应报中危", levels(f, "ghost"), ["中"])
 f = detect_conflicts("Proprietary", [mk("a", "MIT"), mk("b", "LGPL-3.0-only")])
 check("B9", "项目许可证未知时应检出传染性依赖且不误报宽松依赖",
       sorted(x["pkg"] for x in f), ["b"])
+
+
+# ============================================================ C. 依赖清单解析
+
+print("\nC. 依赖清单解析（pyproject.toml 三种主流写法）")
+
+import tempfile
+from pathlib import Path as _Path
+from license_audit import parse_pyproject, parse_requirements, parse_package_json
+
+_tmp = _Path(tempfile.mkdtemp())
+
+
+def _write(name, text):
+    p = _tmp / name
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+# C1 PEP 621
+pep621 = _write("c1.toml", """
+[project]
+name = "demo"
+dependencies = [
+  "requests>=2.31.0",
+  "pandas",
+  "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff"]
+""")
+got = parse_pyproject(pep621)
+check("C1", "PEP 621 dependencies 应被解析（含可选依赖组）",
+      sorted(got), ["pandas", "pymupdf", "pytest", "requests", "ruff"])
+
+# C2 Poetry
+poetry = _write("c2.toml", """
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = "^3.0"
+mysqlclient = "*"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.0"
+""")
+got = parse_pyproject(poetry)
+check("C2", "Poetry 依赖应被解析且排除 python 自身",
+      sorted(got), ["black", "flask", "mysqlclient"])
+
+# C3 PEP 735 dependency-groups
+pep735 = _write("c3.toml", """
+[dependency-groups]
+test = ["pytest", "coverage"]
+docs = ["mkdocs"]
+""")
+check("C3", "PEP 735 dependency-groups 应被解析",
+      sorted(parse_pyproject(pep735)), ["coverage", "mkdocs", "pytest"])
+
+# C4 带环境标记与附加项的写法
+req = _write("c4.txt", """
+# 注释行
+requests>=2.31.0
+flask
+uvicorn[standard]>=0.30
+torch ; python_version < "3.13"
+-r other.txt
+git+https://github.com/x/y.git#egg=y
+""")
+check("C4", "requirements.txt 应跳过注释、-r、URL 行并保留包名",
+      sorted(parse_requirements(req)), ["flask", "requests", "torch", "uvicorn"])
+
+# C5 package.json
+pkg = _write("c5.json", '{"dependencies":{"express":"^4"},"devDependencies":{"jest":"^29"}}')
+check("C5", "package.json 的 dependencies 与 devDependencies 应合并去重",
+      sorted(parse_package_json(pkg)), ["express", "jest"])
+
+# C6 空清单不应崩溃
+empty = _write("c6.txt", "# 只有注释\n")
+check("C6", "空依赖清单应返回空列表而非崩溃", parse_requirements(empty), [])
 
 
 # ============================================================ 汇总

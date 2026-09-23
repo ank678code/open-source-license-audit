@@ -22,3 +22,6 @@ scan/*.requirements.txt
 
 # 扫描工作目录（由 scan_projects.py 重新生成）
 scan/
+
+# 扫描工作目录（由 scan_projects.py 重新生成）
+scan/

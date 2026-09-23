@@ -31,26 +31,71 @@
 
 ## 实测数据
 
-对 8 个真实开源项目（累计 316 个依赖）做了批量扫描：
+对 **26 个真实开源项目**（累计 **1143 个依赖**）做了批量扫描，覆盖 PyPI 与 npm 两种生态：
 
-| 项目 | 自身许可 | 依赖数 | 识别率 | 高可信 | 检出的传染性依赖 |
-|---|---|---|---|---|---|
-| open-compass/opencompass | Apache-2.0 | 47 | 97.9% | 85.1% | `fuzzywuzzy`(GPL-3.0)、`python-Levenshtein`(GPL-2.0-or-later)、`func-timeout`(LGPL-3.0) |
-| EleutherAI/lm-evaluation-harness | MIT | 70 | 95.7% | 81.4% | `fuzzywuzzy`(GPL-3.0)、`kstar-planner`(GPL-3.0)、`pycountry`(LGPL-2.1) |
-| infiniflow/ragflow | Apache-2.0 | 70 | 92.9% | 78.6% | `demjson3`(LGPL-3.0)、`extract-msg`(GPL)、`es-core-news-sm`(GPL) |
-| vllm-project/vllm | Apache-2.0 | 58 | 96.6% | 75.9% | `tqdm`(MPL-2.0 AND MIT) |
-| run-llama/llama_index | MIT | 23 | 100% | 95.7% | `codespell`(GPL-2.0)、`pylint`(GPL-2.0-or-later) |
-| FlowiseAI/Flowise | Apache-2.0 | 23 | 100% | 100% | — |
-| deepset-ai/haystack | Apache-2.0 | 18 | 100% | 88.9% | `tqdm`(MPL-2.0 AND MIT) |
-| modelscope/modelscope | Apache-2.0 | 7 | 100% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
+| 项目 | 自身许可 | 生态 | 依赖数 | 识别率 | 高可信 | 检出的传染性依赖 |
+|---|---|---|---|---|---|---|
+| infiniflow/ragflow | Apache-2.0 | PyPI | 70 | 92.9% | 77.1% | `demjson3`(LGPL-3.0-only), `es-core-news-sm`(GPL-3.0-only), `extract-msg`(GPL-unknown) 等 5 个 |
+| NVIDIA/NeMo | Apache-2.0 | PyPI | 70 | 95.7% | 90.0% | — |
+| EleutherAI/lm-evaluation-harness | MIT | PyPI | 70 | 98.6% | 82.9% | `fuzzywuzzy`(GPL-2.0-only), `kstar-planner`(GPL-3.0-only), `pycountry`(LGPL-2.1-only) 等 4 个 |
+| apache/airflow | Apache-2.0 | PyPI | 70 | 90.0% | 90.0% | — |
+| lobehub/lobe-chat | Apache-2.0 | npm | 70 | 100.0% | 100.0% | — |
+| vercel/next.js | MIT | npm | 70 | 100.0% | 100.0% | `@vercel/og`(MPL-2.0) |
+| facebook/react | MIT | npm | 70 | 95.7% | 95.7% | — |
+| explodinggradients/ragas | Apache-2.0 | PyPI | 68 | 98.5% | 79.4% | `tqdm`(MPL-2.0 AND MIT) |
+| vllm-project/vllm | Apache-2.0 | PyPI | 58 | 98.3% | 77.6% | `tqdm`(MPL-2.0 AND MIT) |
+| fastapi/fastapi | MIT | PyPI | 55 | 100.0% | 90.9% | `CairoSVG`(LGPL-3.0-or-later), `PyGithub`(LGPL-unknown) |
+| matplotlib/matplotlib | PSF-based | PyPI | 52 | 100.0% | 82.7% | `certifi`(MPL-2.0), `pikepdf`(MPL-2.0), `pytest-rerunfailures`(MPL-2.0) |
+| vuejs/core | MIT | npm | 52 | 98.1% | 100.0% | `rollup-plugin-dts`(LGPL-3.0-only) |
+| open-compass/opencompass | Apache-2.0 | PyPI | 47 | 97.9% | 85.1% | `func-timeout`(LGPL-2.0-only), `fuzzywuzzy`(GPL-2.0-only), `python-Levenshtein`(GPL-2.0-or-later) 等 4 个 |
+| expressjs/express | MIT | npm | 44 | 100.0% | 100.0% | — |
+| axios/axios | MIT | npm | 43 | 100.0% | 100.0% | — |
+| pandas-dev/pandas | BSD-3-Clause | PyPI | 39 | 97.4% | 84.6% | `PyQt5`(GPL-3.0-only), `psycopg2`(LGPL-unknown), `pyxlsb`(LGPL-3.0-or-later) |
+| scrapy/scrapy | BSD-3-Clause | PyPI | 34 | 97.1% | 73.5% | — |
+| pallets/flask | BSD-3-Clause | PyPI | 25 | 100.0% | 88.0% | — |
+| run-llama/llama_index | MIT | PyPI | 23 | 100.0% | 95.7% | `codespell`(GPL-2.0-only), `pylint`(GPL-2.0-or-later) |
+| FlowiseAI/Flowise | Apache-2.0 | npm | 23 | 100.0% | 100.0% | — |
+| n8n-io/n8n | Sustainable Use License | npm | 21 | 100.0% | 100.0% | — |
+| deepset-ai/haystack | Apache-2.0 | PyPI | 18 | 100.0% | 88.9% | `tqdm`(MPL-2.0 AND MIT) |
+| psf/requests | Apache-2.0 | PyPI | 18 | 100.0% | 83.3% | `certifi`(MPL-2.0) |
+| huggingface/peft | Apache-2.0 | PyPI | 15 | 100.0% | 80.0% | `tqdm`(MPL-2.0 AND MIT) |
+| microsoft/DeepSpeed | Apache-2.0 | PyPI | 11 | 100.0% | 81.8% | `tqdm`(MPL-2.0 AND MIT) |
+| modelscope/modelscope | Apache-2.0 | PyPI | 7 | 100.0% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
 
-**整体识别率 97.5%，高可信度判定占比 83.5%，检出风险项 16 条（高危 8 条），8 个项目里 7 个含传染性依赖。**
+**整体识别率 97.8%，高可信度判定占比 89.2%，检出风险项 37 条（高危 10 条），26 个项目里 16 个含传染性依赖。**
 
-复现：`python scan_projects.py --jobs 16`
+### 样本怎么选的
+
+不是随便挑的，每个项目加入前都实测过能否解析出依赖清单——拿不到清单的项目
+只会在汇总里多一行"跳过"，反而削弱数据说服力。26 个项目里：
+
+- **20 个 PyPI、6 个 npm**，用于验证跨生态判定能力
+- 覆盖 AI/大模型（ragflow、NeMo、vllm、opencompass、ragas…）、通用 Python
+  （pandas、flask、fastapi、requests、airflow…）、前端（next.js、react、vue、axios…）
+
+### 一个真实缺陷：monorepo 内部包
+
+扫描 lobe-chat 时发现识别率只有 58.6%、还多出 29 条风险项。查明原因：
+它的 package.json 里有 89 个依赖版本写作 `workspace:*`——**monorepo 内部包，
+项目自身代码，根本不发布到 npm**。
+
+它们被当成第三方依赖去查，查不到就记"未识别"、还判成风险项。归因是错的：
+不是工具认不出许可证，而是它压根不是第三方依赖。
+现已按 `workspace:` 标记识别并排除（本次共排除 **108 个**），
+lobe-chat 识别率回到 100%、误报归零。
+
+**判定只依据 `workspace:` 标记，不靠包名猜测**——`@scope/xxx` 里既有内部包
+也有真实发布的第三方包（`@vercel/og`、`@anthropic-ai/sdk`），按名字猜必然出错。
+
+### 复现
+
+```bash
+python scan_projects.py --jobs 16     # 完整复现，约 10—20 分钟
+python scan_projects.py --offline     # 复用快照重算，约 2 分钟，不联网
+```
 
 - 只依赖 Python 标准库直连 GitHub REST API，**不需要任何本地连接器脚本或第三方库**
-- 可选：设置 `GITHUB_TOKEN` 环境变量可提升配额上限（匿名接口 60 次/小时也够一次完整扫描）
-- 单次完整扫描约 2—4 分钟（并发抓取；串行约需 20—30 分钟）
+- 可选：设置 `GITHUB_TOKEN` 环境变量提升配额（匿名接口 60 次/小时，26 个项目约需 300 次请求，会限流）
 - 结果写入 `scan_summary.md` / `scan_summary.json`，逐项目报告在 `scan/` 下
 
 ## 架构

@@ -1,0 +1,17 @@
+# 模拟一个典型的"学生 AI 应用项目"依赖清单
+# 目的：验证工具能否检出真实存在的传染性许可依赖
+requests>=2.31.0
+flask
+pandas
+numpy
+openai
+tqdm
+pyyaml
+jinja2
+pymupdf
+mysqlclient
+PyQt5
+psycopg2-binary
+chardet
+scikit-learn
+this-package-does-not-exist-xyz

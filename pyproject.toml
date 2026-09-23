@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-source-license-audit"
+version = "0.2.0"
+description = "开源许可证合规检查 + 《开源及第三方资源使用清单》生成器"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+keywords = ["license", "compliance", "spdx", "open-source", "sbom"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+license-audit = "license_audit:main"
+
+[tool.setuptools]
+py-modules = ["license_audit", "semantic_audit"]

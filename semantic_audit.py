@@ -21,6 +21,14 @@ semantic_audit.py — 语义字段判定模块（三层闭环）
   ollama   本地开源模型，http://localhost:11434，无需 API Key
   openai   任意 OpenAI 兼容接口（base_url + api_key + model）
 
+v0.3 修正：
+  · 测试文件判定此前用 `"test" in 路径` 子串匹配，会把 contest/、latest/、
+    attestation.py 误判为测试文件，进而把生产代码的 import 判成
+    "仅测试环节使用、许可义务不触发"——结论方向会带反。现改为按路径段
+    与文件名精确匹配（tests/ test_*.py *_test.py conftest.py …）。
+  · 新增 render_checklist()：直接产出符合竞赛字段要求的
+    《开源及第三方资源使用清单》，「使用方式」「自主开发边界」由证据驱动。
+
 用法：
   python semantic_audit.py --project-dir fixture_project --audit-json report_student.json
   python semantic_audit.py --project-dir . --audit-json report_student.json \\
@@ -36,7 +44,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from license_audit import category_of, obligations_of, LICENSE_DB
+from license_audit import category_of, obligations_of, LICENSE_DB, VERSION
 
 # 允许的枚举值，用于校验模型输出是否越界
 USAGE_ENUM = [
@@ -48,6 +56,38 @@ USAGE_ENUM = [
 ]
 BOUNDARY_ENUM = ["未修改，仅调用公开 API", "已修改", "已二次开发", "未使用其代码"]
 TRIGGER_ENUM = ["是", "否", "待确认"]
+
+# 扫描时跳过的目录名（第三方副本 / 缓存 / 构建产物），一律按小写比较
+SKIP_DIRS = {
+    ".git", ".hg", ".svn", ".venv", "venv", "env", ".env", "node_modules",
+    "__pycache__", "site-packages", "dist-packages", ".tox", ".nox", ".mypy_cache",
+    ".pytest_cache", ".ruff_cache", "build", "dist", ".eggs", "target", ".idea", ".vscode",
+}
+
+# 测试目录名（按路径段精确匹配，不做子串匹配）
+TEST_DIR_NAMES = {"test", "tests", "testing", "spec", "specs", "__tests__"}
+
+
+def is_test_path(rel):
+    """判断一个相对路径是否属于测试代码。
+
+    v0.3 修正：此前用 `"test" in rel.lower()` 做子串匹配，会把
+    contest/、latest/、attestation.py 这类路径误判为测试文件，
+    进而把生产代码里的 import 判成"仅测试环节使用、许可义务不触发"——
+    这是会把结论带反的错误方向。现改为按路径段与文件名精确匹配。
+    """
+    parts = [p for p in rel.replace("\\", "/").split("/") if p]
+    dirs = [p.lower() for p in parts[:-1]]
+    if any(d in TEST_DIR_NAMES for d in dirs):
+        return True
+    name = parts[-1].lower() if parts else ""
+    if name in ("conftest.py", "test.py", "tests.py"):
+        return True
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return True
+    if name.endswith("_spec.py") or name.endswith(".test.js") or name.endswith(".spec.js"):
+        return True
+    return False
 
 
 # ============================================================ 第一层：证据采集
@@ -109,7 +149,7 @@ def import_names(package_name):
 def _py_files(project_dir):
     for p in project_dir.rglob("*.py"):
         parts = {x.lower() for x in p.parts}
-        if parts & {".git", ".venv", "venv", "node_modules", "__pycache__", "site-packages"}:
+        if parts & SKIP_DIRS:
             continue
         yield p
 
@@ -144,7 +184,7 @@ def collect_evidence(project_dir, package_name):
         rel = str(f.relative_to(root)).replace("\\", "/")
         if len(ev["files"]) < 5:
             ev["files"].append(rel)
-        is_test = ("test" in rel.lower()) or f.name.startswith("test_")
+        is_test = is_test_path(rel)
         if is_test:
             test_hits += n
         else:
@@ -469,6 +509,29 @@ def render_markdown(data, rows, stats):
     return "\n".join(out)
 
 
+def judgments_of(rows):
+    """从 enrich() 的 rows 里抽出 {包名: 判定}，供 to_checklist_table 使用。
+
+    v0.3 新增：让「使用方式」「自主开发边界」两列由真实证据驱动，
+    而不是像以前那样在清单表里硬编码"作为库调用（未修改源码）"。
+    """
+    return {r["name"]: r["judgment"] for r in rows}
+
+
+def render_checklist(data, rows):
+    """按竞赛要求的字段顺序输出《开源及第三方资源使用清单》。"""
+    from license_audit import to_checklist_table
+    return "\n".join([
+        "# 《开源及第三方资源使用清单》", "",
+        f"**项目名称**：{data.get('project', '待填')}　"
+        f"**项目自身许可证**：{data.get('project_license', '?')}　"
+        f"**依赖数**：{len(rows)}", "",
+        to_checklist_table(data.get("records", []), judgments_of(rows)), "",
+        "> 「使用方式」「自主开发边界」由「证据采集 → 语义判定 → 规则校验」"
+        "三层闭环产出；未通过规则校验的条目已回退到规则结论并在明细中标注。",
+    ])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-dir", required=True)
@@ -495,7 +558,11 @@ def main():
     Path(out).write_text(render_markdown(data, rows, stats), encoding="utf-8")
     Path(out.replace(".md", ".json")).write_text(
         json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    # v0.3 新增：直接产出符合竞赛字段要求的清单（使用方式等列由证据驱动）
+    cl = a.audit_json.replace(".json", "_checklist.md")
+    Path(cl).write_text(render_checklist(data, rows), encoding="utf-8")
     print(f"报告已写出：{out}")
+    print(f"清单已写出：{cl}")
 
 
 if __name__ == "__main__":

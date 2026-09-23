@@ -197,7 +197,7 @@ class HallucinatingBackend:
                 '"置信度":"高"}')
 
 
-j, meta = judge_one("fuzzywuzzy", "GPL-3.0-only", ev_fuzzy, HallucinatingBackend())
+j, meta = judge_one("fuzzywuzzy", "GPL-2.0-only", ev_fuzzy, HallucinatingBackend())
 check("E4", "模型幻觉应被校验层拦下", meta["fell_back"], True)
 check("E5", "拦截后应改用规则结论（已二次开发）",
       j["自主开发边界"], "已二次开发")
@@ -221,6 +221,186 @@ j, meta = judge_one("scikit-learn", "BSD-3-Clause", ev_sk, GoodBackend())
 check("E7", "合规的模型输出应被采纳", meta["validated"], True)
 check("E8", "采纳后应标注来源为模型判定",
       "模型判定" in j.get("_来源", ""), True)
+
+
+# ============================================================ F. 测试文件判定
+
+print("\nF. 测试文件路径判定（v0.3 修复：子串匹配会把结论带反）")
+
+from semantic_audit import (is_test_path, judgments_of, render_checklist,
+                            OllamaBackend, OpenAICompatibleBackend)
+
+# 修复前的实现是 `"test" in rel.lower()`，会把下面这些生产代码误判为测试文件，
+# 进而把真实调用判成"仅测试环节使用、许可义务不触发"——这是会把结论带反的方向。
+for cid, rel, want in [
+    ("F1", "tests/test_app.py", True),
+    ("F2", "test/foo.py", True),
+    ("F3", "testing/util.py", True),
+    ("F4", "spec/helper.py", True),
+    ("F5", "__tests__/a.py", True),
+    ("F6", "conftest.py", True),
+    ("F7", "src/foo_test.py", True),
+    ("F8", "src/foo_spec.py", True),
+    ("F9", "app.py", False),
+    ("F10", "lib/legacy.py", False),
+    # 以下四条是修复前必然误判的回归用例
+    ("F11", "contest/report.py", False),
+    ("F12", "latest/run.py", False),
+    ("F13", "src/attestation.py", False),
+    ("F14", "mytest.py", False),
+    ("F15", "protest/x.py", False),
+]:
+    check(cid, f"is_test_path({rel!r}) 应为 {want}", is_test_path(rel), want)
+
+check("F16", "空路径不应被判为测试文件", is_test_path(""), False)
+check("F17", "路径分隔符反斜杠也应正确处理",
+      (is_test_path("tests\\test_app.py"), is_test_path("contest\\x.py")), (True, False))
+
+
+# ============================================================ G. 证据采集边界
+
+print("\nG. 证据采集（在自建目录结构上验证，含回归场景）")
+
+import tempfile
+from pathlib import Path as _P
+
+_proj = _P(tempfile.mkdtemp(prefix="ev_"))
+
+
+def _mkfile(rel, text):
+    p = _proj / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+# requests 出现在 4 个"名字里带 test 但不是测试"的生产文件 + 1 个真测试文件
+_mkfile("app.py", "import requests\n")
+_mkfile("contest/report.py", "import requests\n")
+_mkfile("latest/run.py", "import requests\n")
+_mkfile("src/attestation.py", "import requests\n")
+_mkfile("mytest.py", "import requests\n")
+_mkfile("tests/test_app.py", "import requests\n")
+# pandas 只在测试里出现
+_mkfile("tests/test_pandas.py", "import pandas as pd\n")
+# vendored 副本与补丁文件
+_mkfile("_vendor/fuzzywuzzy/__init__.py", "# vendored\n")
+_mkfile("third_party/chardet/__init__.py", "# vendored\n")
+_mkfile("patches/chardet.patch", "--- a/x\n+++ b/x\n")
+_mkfile("requirements.txt", "requests\nfuzzywuzzy\nchardet\n")
+
+_ev_req = collect_evidence(_proj, "requests")
+check("G1", "带别名的 import 与普通 import 都应计入",
+      _ev_req["import_count"], 6)
+check("G2", "名字含 test 的生产文件不得让整个包被判为测试专用",
+      _ev_req["test_only"], False)
+
+_ev_pd = collect_evidence(_proj, "pandas")
+check("G3", "只在 tests/ 下出现的包应判定为测试专用",
+      _ev_pd["test_only"], True)
+check("G4", "test_only 的包 import_count 仍应被记录",
+      _ev_pd["import_count"], 1)
+
+_ev_fz = collect_evidence(_proj, "fuzzywuzzy")
+check("G5", "_vendor/ 下的 vendored 副本应被检出",
+      _ev_fz["vendored_path"], "_vendor/fuzzywuzzy")
+
+_ev_cd = collect_evidence(_proj, "chardet")
+check("G6", "third_party/ 下的 vendored 副本应被检出",
+      _ev_cd["vendored_path"], "third_party/chardet")
+check("G7", "补丁文件应被检出",
+      _ev_cd["patch_files"], ["patches/chardet.patch"])
+check("G8", "出现在依赖清单里应被标记",
+      _ev_req["in_requirements"], True)
+
+_ev_none = collect_evidence(_proj, "this-package-does-not-exist")
+check("G9", "完全不存在的包应返回零证据而不是报错",
+      (_ev_none["import_count"], _ev_none["vendored_path"], _ev_none["patch_files"]),
+      (0, None, []))
+
+
+# ============================================================ H. 校验规则补充
+
+print("\nH. 规则校验层补充（弱传染 / 仅测试 / 边界值）")
+
+# H1 有 vendored 副本却说义务不触发 → 驳回
+probs = validate_judgment(mk_judgment(trigger="否"), "GPL-2.0-only", _ev_fz)
+check("H1", "有 vendored 副本却声称「义务不触发」应被驳回",
+      any("不可能不触发" in p for p in probs), True)
+
+# H2 弱传染许可 + 直接调用 + 声称不触发 → 规则层不拦（LGPL 动态链接下确实可能不触发）
+probs = validate_judgment(mk_judgment(trigger="否"), "LGPL-3.0-only", _ev_req)
+check("H2", "弱传染许可不应被当成强传染来拦截",
+      [p for p in probs if "不可能不触发" in p], [])
+
+# H3 强传染许可但仅测试使用 → 规则层不拦（不随产品分发，义务一般不触发）
+probs = validate_judgment(
+    mk_judgment(usage="仅测试环节使用（不随产品分发）", trigger="否", conf="高"),
+    "GPL-3.0-only", _ev_pd)
+check("H3", "强传染许可但仅测试使用，不应因「义务不触发」被驳回",
+      [p for p in probs if "不可能不触发" in p], [])
+
+# H4 置信度缺失不应被当作"过度自信"
+probs = validate_judgment(mk_judgment(conf=None), "MIT", ev_mysql)
+check("H4", "置信度缺失不应被判定为过度自信", probs, [])
+
+# H5/H6 枚举越界
+probs = validate_judgment(mk_judgment(boundary="随便写"), "MIT", ev_pandas)
+check("H5", "「自主开发边界」取值越界应被驳回",
+      any("取值越界" in p for p in probs), True)
+probs = validate_judgment(mk_judgment(trigger="也许"), "MIT", ev_pandas)
+check("H6", "「许可义务是否触发」取值越界应被驳回",
+      any("取值越界" in p for p in probs), True)
+
+# H7 全空字典 → 应报多处问题而不是崩溃
+probs = validate_judgment({}, "MIT", ev_pandas)
+check("H7", "空判定对象应报多处问题而不是崩溃", len(probs) >= 3, True)
+
+
+# ============================================================ I. 后端与输出
+
+print("\nI. 后端抽象与清单输出")
+
+check("I1", "规则后端不应调用模型", RuleBackend().complete("s", "u"), None)
+check("I2", "Ollama 后端名称应为 ollama", OllamaBackend().name, "ollama")
+check("I3", "OpenAI 兼容后端名称应为 openai", OpenAICompatibleBackend().name, "openai")
+check("I4", "OpenAI 兼容后端应支持自定义 base_url",
+      OpenAICompatibleBackend(base_url="https://x/v1").base_url, "https://x/v1")
+check("I5", "Ollama 后端应去掉 host 末尾斜杠",
+      OllamaBackend("http://localhost:11434/").host, "http://localhost:11434")
+check("I6", "嵌套花括号的 JSON 应能解析",
+      parse_model_json('前缀 {"a": {"b": 2}} 后缀'), {"a": {"b": 2}})
+# 数组本身是合法 JSON，解析层不该报错；但校验层必须拒绝它，
+# 这才是真正要守住的属性——模型返回数组时不能当成判定结果用。
+check("I7", "数组输出虽能解析，但必须被校验层拒绝",
+      len(validate_judgment(parse_model_json("[1, 2, 3]"), "MIT", ev_pandas)) > 0, True)
+
+_rows = [{"name": "fuzzywuzzy",
+          "judgment": {"使用方式": "修改源码 / 二次开发", "自主开发边界": "已二次开发"}}]
+check("I8", "judgments_of 应抽出 {包名: 判定}",
+      list(judgments_of(_rows).keys()), ["fuzzywuzzy"])
+_cl = render_checklist({"project": "演示项目", "project_license": "MIT",
+                        "records": [{"name": "fuzzywuzzy", "source": "PyPI",
+                                     "version": "0.18.0", "license_raw": "GPLv2",
+                                     "spdx": "GPL-2.0-only",
+                                     "license_field": "trove classifier",
+                                     "confidence": "高", "deps": [], "status": "OK"}]},
+                       _rows)
+check("I9", "竞赛清单应包含「使用方式」列",
+      "使用方式" in _cl, True)
+check("I10", "竞赛清单应写入证据驱动的判定结果",
+      "修改源码 / 二次开发" in _cl, True)
+check("I11", "竞赛清单应包含「自主开发边界」与「关键许可义务」列",
+      ("自主开发边界" in _cl) and ("关键许可义务" in _cl), True)
+
+for cid, pkg, want in [("I12", "scikit-image", "skimage"),
+                       ("I13", "opencv-python", "cv2"),
+                       ("I14", "Pillow", "PIL"),
+                       ("I15", "beautifulsoup4", "bs4"),
+                       ("I16", "protobuf", "google.protobuf"),
+                       ("I17", "huggingface-hub", "huggingface_hub"),
+                       ("I18", "python-dateutil", "dateutil")]:
+    check(cid, f"{pkg} 应映射到 {want}", want in import_names(pkg), True)
 
 
 # ============================================================ 汇总

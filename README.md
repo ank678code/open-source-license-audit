@@ -44,7 +44,7 @@
 | deepset-ai/haystack | Apache-2.0 | 18 | 100% | 88.9% | `tqdm`(MPL-2.0 AND MIT) |
 | modelscope/modelscope | Apache-2.0 | 7 | 100% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
 
-**整体识别率 97.5%，高可信度判定占比 86.7%，8 个项目里 7 个含传染性依赖。**
+**整体识别率 97.5%，高可信度判定占比 83.5%，检出风险项 16 条（高危 8 条），8 个项目里 7 个含传染性依赖。**
 
 复现：`python scan_projects.py --jobs 16`
 

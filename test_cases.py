@@ -14,7 +14,8 @@ test_cases.py — license_audit 回归测试用例集
 import sys
 
 from license_audit import (normalize_license, normalize_single, category_of,
-                           resolve_license_pypi, detect_conflicts)
+                           resolve_license_pypi, detect_conflicts,
+                           split_workspace_deps)
 
 VERBOSE = "-v" in sys.argv
 PASS = FAIL = 0
@@ -568,6 +569,47 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
 
 # G35 版本号暴露（报告里要能追溯到工具版本）
 check("G35", "工具版本应为 0.3", VERSION, "0.3")
+
+
+# ============================================================ J. monorepo 工作区内部依赖
+# 来源：扫描 lobehub/lobe-chat 时实测。它的 package.json 里有 89 个依赖
+# 版本写作 "workspace:*"，是 monorepo 内部包、不发布到 npm。
+# 修复前这些包会被当成第三方依赖去查 npm：查不到 → 记「未识别」，
+# 识别率被拉到 58.6%，还误报出 29 条风险项。修复后识别率 100%、误报 0。
+
+check("J1", "workspace:* 应被识别为工作区内部包",
+      split_workspace_deps([("@lobechat/agent-runtime", "workspace:*")]),
+      ([], ["@lobechat/agent-runtime"]))
+
+check("J2", "workspace:^ 也应识别为内部包",
+      split_workspace_deps([("@lobechat/core", "workspace:^")]),
+      ([], ["@lobechat/core"]))
+
+check("J3", "普通版本范围是外部依赖，不应误判为内部包",
+      split_workspace_deps([("express", "^4.18.0")]),
+      (["express"], []))
+
+# 关键：@scope/ 开头的包既可能是内部包也可能是真实发布的第三方包
+# （@vercel/og、@anthropic-ai/sdk 都在 npm 上），按包名猜测必然出错，
+# 只能依据 workspace 标记判断。
+check("J4", "@scope 包带普通版本时必须是外部依赖（不能按名字猜）",
+      split_workspace_deps([("@vercel/og", "^0.6.0")]),
+      (["@vercel/og"], []))
+check("J5", "@scope 包带精确版本时必须是外部依赖",
+      split_workspace_deps([("@anthropic-ai/sdk", "0.32.1")]),
+      (["@anthropic-ai/sdk"], []))
+
+check("J6", "空版本说明符应视为外部依赖",
+      split_workspace_deps([("left-pad", "")]), (["left-pad"], []))
+
+check("J7", "混合清单应正确分离且保持原有顺序",
+      split_workspace_deps([("axios", "^1.7.0"),
+                            ("@lobechat/builtin-tools", "workspace:*"),
+                            ("react", "18.3.1"),
+                            ("@lobechat/types", "workspace:*")]),
+      (["axios", "react"], ["@lobechat/builtin-tools", "@lobechat/types"]))
+
+check("J8", "空清单不应报错", split_workspace_deps([]), ([], []))
 
 
 # ============================================================ 汇总

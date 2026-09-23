@@ -80,9 +80,14 @@
 
 无需安装任何第三方依赖，Python 3.8+ 即可。
 
+### 命令行
+
 ```bash
 # 1. 扫描依赖清单，生成许可证合规报告
 python license_audit.py --requirements requirements.txt --project-license MIT
+
+# 也支持 pyproject.toml（PEP 621 / PEP 735 / Poetry）与 package.json
+python license_audit.py --pyproject pyproject.toml --project-license Apache-2.0
 
 # 2. 补全语义字段（使用方式、自主开发边界等）
 python semantic_audit.py --project-dir . --audit-json license_audit_report.json
@@ -96,6 +101,19 @@ python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 [3/4] 许可证类别分布：宽松许可 42，弱传染 2，强传染 2，未识别 1
 [4/4] 检出风险项：3 条（高 2 / 中 1）
 ```
+
+### Web 界面
+
+```bash
+python web/server.py            # 打开 http://127.0.0.1:8770
+```
+
+两种用法：
+
+- **粘贴依赖清单** —— 直接查许可证，无需上传源码
+- **上传项目 zip** —— 解压后扫描源码，额外判定「使用方式」「自主开发边界」「许可义务是否触发」
+
+结果页支持一键下载《开源及第三方资源使用清单》（Markdown / CSV）。
 
 ### 使用本地模型做语义判定
 

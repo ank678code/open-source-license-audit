@@ -132,6 +132,15 @@ check("A22", '"LICENCE.txt" 等占位值应为 UNKNOWN',
 check("A23", '"BlueOak-1.0.0" 应识别为宽松许可',
       (normalize_license("BlueOak-1.0.0"), category_of("BlueOak-1.0.0")),
       ("BlueOak-1.0.0", "permissive"))
+# A24 Pillow 的 license_expression 是 "MIT-CMU"，须在通用 MIT 模式之前匹配，
+#     否则会被吃掉或（更早的版本里）完全识别不出来。
+check("A24", '"MIT-CMU"（Pillow）应识别为 MIT-CMU 而非泛化 MIT',
+      normalize_license("MIT-CMU"), "MIT-CMU")
+check("A25", "MIT-CMU 应归入宽松许可",
+      category_of("MIT-CMU"), "permissive")
+# A26 回归保护：通用 MIT 写法不能被 MIT-CMU 规则影响
+check("A26", '"MIT License" 仍应识别为 MIT',
+      normalize_license("MIT License"), "MIT")
 
 
 # ============================================================ B. 兼容性冲突检测

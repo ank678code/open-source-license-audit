@@ -62,6 +62,8 @@ SPDX_PATTERNS = [
     # 词序颠倒的写法：protobuf 的 license 字段写 "3-Clause BSD License"
     (r"^3[- ]?Clause BSD", "BSD-3-Clause"),
     (r"^2[- ]?Clause BSD", "BSD-2-Clause"),
+    # MIT-CMU（Pillow 等使用）必须在 MIT 之前匹配，否则会被通用 MIT 模式吃掉
+    (r"^MIT[- ]CMU", "MIT-CMU"),
     (r"^MIT$|^MIT ", "MIT"),
     (r"^ISC$|^ISC ", "ISC"),
     (r"Python Software Foundation|^PSF", "PSF-2.0"),
@@ -90,6 +92,7 @@ LICENSE_DB = {
     "Zlib":           ("permissive",        "保留版权与许可声明，不得用作者名义背书"),
     "0BSD":           ("permissive",        "无附加义务（放弃署名要求）"),
     "HPND":           ("permissive",        "保留版权与许可声明"),
+    "MIT-CMU":        ("permissive",        "保留版权与许可声明（CMU 变体，与 HPND 同源）"),
     "BlueOak-1.0.0":  ("permissive",        "保留版权与许可声明，含明确的专利授权"),
     "MPL-2.0":        ("weak-copyleft",     "MPL 覆盖的文件需以 MPL 开放源码"),
     "EPL-2.0":        ("weak-copyleft",     "EPL 覆盖的模块需以 EPL 开放源码"),

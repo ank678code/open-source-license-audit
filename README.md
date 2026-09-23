@@ -27,6 +27,25 @@
 | 写法五花八门 | `PyQt5` 写 `"GPL v3"`、`chardet` 写 `"0BSD"`、`protobuf` 写 `"3-Clause BSD License"`（词序颠倒）、`rouge` 只写 `"LICENCE.txt"` | 逐一补充模式；对真的没有信息的（如 `LICENCE.txt`）明确标为"待人工确认"，不假装确定 |
 | 包名 ≠ import 名 | `scikit-learn` 实际 import `sklearn`，`PyYAML` 实际 import `yaml`，`pymupdf` 新旧版分别是 `pymupdf` / `fitz` | 维护别名表 + 启发式推断，避免把"已经用了"误判成"没用到" |
 
+## 实测数据
+
+对 8 个真实开源项目（累计 316 个依赖）做了批量扫描：
+
+| 项目 | 自身许可 | 依赖数 | 识别率 | 高可信 | 检出的传染性依赖 |
+|---|---|---|---|---|---|
+| open-compass/opencompass | Apache-2.0 | 47 | 97.9% | 85.1% | `fuzzywuzzy`(GPL-3.0)、`python-Levenshtein`(GPL-2.0-or-later)、`func-timeout`(LGPL-3.0) |
+| EleutherAI/lm-evaluation-harness | MIT | 70 | 95.7% | 81.4% | `fuzzywuzzy`(GPL-3.0)、`kstar-planner`(GPL-3.0)、`pycountry`(LGPL-2.1) |
+| infiniflow/ragflow | Apache-2.0 | 70 | 92.9% | 78.6% | `demjson3`(LGPL-3.0)、`extract-msg`(GPL)、`es-core-news-sm`(GPL) |
+| vllm-project/vllm | Apache-2.0 | 58 | 96.6% | 75.9% | `tqdm`(MPL-2.0 AND MIT) |
+| run-llama/llama_index | MIT | 23 | 100% | 95.7% | `codespell`(GPL-2.0)、`pylint`(GPL-2.0-or-later) |
+| FlowiseAI/Flowise | Apache-2.0 | 23 | 100% | 100% | — |
+| deepset-ai/haystack | Apache-2.0 | 18 | 100% | 88.9% | `tqdm`(MPL-2.0 AND MIT) |
+| modelscope/modelscope | Apache-2.0 | 7 | 100% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
+
+**整体识别率 96.5%，高可信度判定占比 83.2%，8 个项目里 7 个含传染性依赖。**
+
+复现：`python scan_projects.py`（需要 GitHub 访问权限，见 `scan_projects.py` 顶部的连接器说明）
+
 ## 架构
 
 ```
@@ -109,16 +128,17 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 32 个用例：许可证归一化 + 兼容性判定
+python test_cases.py      # 39 个用例：许可证归一化 + 兼容性判定 + 依赖清单解析
 python test_semantic.py   # 36 个用例：证据采集 + 防幻觉校验 + 回退行为
 ```
 
-共 68 个用例。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据。**
+共 75 个用例。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据。**
 
 ## 已知限制
 
 - **语义字段依赖源码可读**：项目源码不在本地时无法采集证据，相关字段会标为"待确认"
 - **包名 → import 名映射是启发式的**：别名表覆盖常见包，冷门包可能漏检；欢迎补充 `IMPORT_ALIASES`
+- **必须按生态查询**：npm 依赖不能按 PyPI 查，否则会命中同名的无关包（实测 `husky` 曾因此被误判为 LGPL）
 - **只覆盖 Python / npm 生态**：Maven、Go modules 尚未支持
 - **不替代法律意见**：许可证兼容性判断基于常见实践，涉及商业分发请咨询专业人士
 - 元数据来自 PyPI / npm registry，会随包版本更新变化，历史结论建议定期重跑

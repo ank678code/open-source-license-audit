@@ -12,3 +12,4 @@ report_*.json
 report_*.md
 license_audit_report.*
 smoke_report.md
+req_lm_eval.txt

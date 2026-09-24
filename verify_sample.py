@@ -21,6 +21,14 @@ import sys
 import time
 import urllib.request
 
+# 本脚本不依赖 license_audit，需自己把 stdout 强制成 UTF-8：
+# Windows 控制台默认是 cp1252/gbk，打印中文会抛 UnicodeEncodeError。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCAN = os.path.join(HERE, "scan")
 UA = {"User-Agent": "license-audit-verify/1.0"}

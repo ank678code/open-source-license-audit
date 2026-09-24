@@ -235,11 +235,11 @@ python scan_projects.py --offline     # 复用已有快照重算
 unzip open-source-license-audit.zip
 cd open-source-license-audit
 
-python test_cases.py        # 应输出：181 通过 0 失败
+python test_cases.py        # 应输出：190 通过 0 失败
 python test_semantic.py     # 应输出： 87 通过 0 失败
 ```
 
-合计 **268 个用例**。
+合计 **277 个用例**。
 
 环境要求：Python 3.8+，**零第三方依赖**（纯标准库）。
 
@@ -336,7 +336,7 @@ $ for c in $(git log --all --format=%h -- license_audit.py); do
 
 | 检查项 | 结果 |
 |---|---|
-| `python test_cases.py` | **181 / 181 通过**（新增 K 组 23 个、L 组 12 个） |
+| `python test_cases.py` | **190 / 190 通过**（新增 K 组 23 个、L 组 12 个、M 组 9 个） |
 | `python test_semantic.py` | **87 / 87 通过** |
 | 端到端合成数据验证 | 三类真实漏判全部正确识别并给出对应风险提示 |
 | 向后兼容 | 既有 146 个用例未修改即通过，`UNKNOWN` 语义保持不变 |
@@ -353,3 +353,63 @@ $ for c in $(git log --all --format=%h -- license_audit.py); do
 
 **未作任何修改**：`web/`、`fixture_project/`、`.github/workflows/ci.yml`、
 `pyproject.toml`、`LICENSE`、`req_*.txt`、`semantic_audit.py`（本轮无改动）
+
+---
+
+## 十一、CI 首次跑通后暴露的两个既有缺陷
+
+补回 `split_workspace_deps` 之后，233 个用例第一次真正执行，
+CI 9 个 job 的结果也第一次有信息量。结果是 **6 红 3 绿**，
+暴露出两个此前完全被 ImportError 掩盖的问题——它们都不是本轮引入的，
+但既然暴露了就一并修掉。
+
+| 失败的 6 个 job | 原因 |
+|---|---|
+| windows × (3.8 / 3.11 / 3.13) | 控制台默认编码 cp1252，打印中文抛 `UnicodeEncodeError` |
+| (ubuntu / macos) × 3.8 | 无 `tomllib`（3.11 才进标准库），pyproject 走正则降级，C1/C3/E13 失败 |
+
+### 11.1 Windows：中文输出直接崩溃
+
+```
+File "test_cases.py", line 43, in <module>
+    print("\nA. 许可证字符串归一化（...）")
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 5-24
+```
+
+Windows 控制台编码取决于系统区域（英文系统 cp1252，中文系统 cp936）。
+本项目大量输出中文，落到 cp1252 必然崩——**不只是 CI 问题，
+本机是英文区域 Windows 的用户同样跑不起来**。
+
+修复：`license_audit.py` 新增 `_force_utf8_stdio()`，在模块层把
+stdout / stderr 强制为 UTF-8。放在模块层而不是各脚本里，
+是因为其余脚本都 import 本模块，导入即生效，不必重复。
+`verify_sample.py` 不依赖本模块，单独加了一段同样的守卫。
+
+### 11.2 Python 3.8：pyproject.toml 降级解析丢失信息
+
+`tomllib` 是 3.11 才进标准库的，而本项目声明支持 3.8+ 且坚持零第三方依赖
+（不能引入 `tomli`）。原降级方案是正则扫 `dependencies` 数组，实测会：
+
+- 丢掉全部版本约束（返回空串），导致"按锁定版本查询"失效
+- 把 `name = "demo"` 这类非依赖键也当成包名收进去（C1 里多出 `name`）
+- 完全解析不了 PEP 735 `[dependency-groups]`（C3 返回空）
+
+修复：新增内置 TOML 子集解析器 `_toml_loads()`（约 120 行，零依赖），
+支持注释、表头、字符串、字符串数组、内联表——恰好覆盖
+PEP 621 / PEP 735 / Poetry 三种写法。抽取逻辑抽成 `_pyproject_deps()`，
+与 tomllib 路径**共用同一套代码**，保证两个路径结果完全一致。
+
+已加 M1–M4 用例逐个比对内置解析与 `tomllib` 的输出，
+以及 M5–M7 校验版本约束保留、不混入非依赖键、注释剥离正确。
+注意 M 组对 `import tomllib` 做了兼容处理——
+否则测试文件本身会在 3.8 上因 import 失败而崩掉，正是我们要避免的那类问题。
+
+### 11.3 修完的结果
+
+| 检查项 | 结果 |
+|---|---|
+| `python test_cases.py` | **190 / 190 通过**（+M 组 9 个） |
+| `python test_semantic.py` | **87 / 87 通过** |
+| 合计 | **277 个用例** |
+| `pyflakes` | 零告警 |
+| Python 3.8 语法 | 兼容（未使用 3.9+ 语法） |

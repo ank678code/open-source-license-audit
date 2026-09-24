@@ -234,12 +234,13 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 181 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
+python test_cases.py      # 190 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
                           #            + workspace 识别 + 知识库扩容(K) + 未识别归因(L)
+                          #            + 跨 Python 版本一致性(M)
 python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 **268 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+共 **277 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
 包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
 `contest/` 被当成测试目录、`BSL-1.1` 被 Boost 规则抢先匹配成宽松许可等。
 

@@ -736,6 +736,105 @@ check("L12", "知识库未收录的处理建议应指向补充知识库",
       "知识库" in "".join(x["advice"] for x in _f), True)
 
 
+# ============================================================ M. 跨 Python 版本一致性（v0.4）
+# 来源：CI。补回 split_workspace_deps 之后测试终于能跑起来，第一次全矩阵执行
+# 就暴露出两个此前被 ImportError 掩盖的既有缺陷：
+#   · Windows 三个 job：控制台默认 cp1252，打印中文直接 UnicodeEncodeError
+#   · Python 3.8 三个 job：无 tomllib（3.11 才进标准库），pyproject 走正则降级，
+#     丢版本约束、还把 `name = "demo"` 当成包名（C1/C3/E13）
+# 这两个都不是本轮引入的，但既然暴露了就一并修掉。
+
+from license_audit import (_toml_loads, _pyproject_deps, _force_utf8_stdio,
+                           parse_pyproject_verbose)
+
+print("\nM. 跨 Python 版本一致性（v0.4：Windows 编码 / 无 tomllib 降级）")
+
+_M_CASES = {
+    "pep621": """
+[project]
+name = "demo"
+dependencies = [
+  "requests>=2.31.0",
+  "pandas",
+  "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff"]
+""",
+    "poetry": """
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = "^3.0"
+mysqlclient = "*"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.0"
+""",
+    "pep735": """
+[dependency-groups]
+test = ["pytest", "coverage"]
+docs = ["mkdocs"]
+""",
+    # 内联表与行尾注释是真实 pyproject.toml 里最常见的两种写法
+    "inline": """
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = { version = "^3.0", optional = true }   # 内联表
+requests = ">=2.0"   # 行尾注释带 # 号
+""",
+}
+
+# 期望结果（由高版本 tomllib 实测产出，作为无 tomllib 时的对照基准）
+_M_EXPECT = {
+    "pep621": [("pandas", ""), ("pymupdf", ">=1.24"), ("pytest", ">=7"),
+               ("requests", ">=2.31.0"), ("ruff", "")],
+    "poetry": [("black", "^24.0"), ("flask", "^3.0"), ("mysqlclient", "*")],
+    "pep735": [("coverage", ""), ("mkdocs", ""), ("pytest", "")],
+    "inline": [("flask", "^3.0"), ("requests", ">=2.0")],
+}
+
+# M1-M4 内置解析器必须与 tomllib 给出完全一致的结果，
+# 否则同一份 pyproject.toml 在不同 Python 版本上会得到不同结论。
+# 注意：tomllib 是 3.11 才有的，这里必须兼容 3.8——否则整个测试文件
+# 在 3.8 上会因 import 失败而崩掉，正是我们要避免的那类问题。
+try:
+    import tomllib as _tomllib
+except ImportError:                      # Python < 3.11
+    _tomllib = None
+
+for _i, (_name, _txt) in enumerate(_M_CASES.items(), start=1):
+    if _tomllib is not None:
+        check(f"M{_i}", f"内置 TOML 解析应与 tomllib 一致（{_name}）",
+              _pyproject_deps(_toml_loads(_txt)),
+              _pyproject_deps(_tomllib.loads(_txt)))
+    else:
+        # 无 tomllib 时（Python < 3.11）仍必须与高版本结论一致，
+        # 基准值取自上表，同样是 tomllib 实测产出。
+        check(f"M{_i}", f"无 tomllib 时内置解析应与基准一致（{_name}）",
+              _pyproject_deps(_toml_loads(_txt)), _M_EXPECT[_name])
+
+# M5 必须保留版本约束——旧正则降级全部返回空串，导致按锁定版本查询失效
+check("M5", "无 tomllib 时 Poetry 版本约束仍应保留",
+      _pyproject_deps(_toml_loads(_M_CASES["poetry"])),
+      [("black", "^24.0"), ("flask", "^3.0"), ("mysqlclient", "*")])
+
+# M6 不能把 `name = "demo"` 这类非依赖键当包名（旧降级会误收 "name"）
+check("M6", "解析结果不应混入非依赖键",
+      "name" in [n for n, _s in _pyproject_deps(_toml_loads(_M_CASES["pep621"]))],
+      False)
+
+# M7 注释里的 # 号不应被当成值的一部分
+check("M7", "行尾注释应被正确剥离",
+      dict(_pyproject_deps(_toml_loads(_M_CASES["inline"])))["requests"], ">=2.0")
+
+# M8-M9 UTF-8 输出守卫
+check("M8", "应提供强制 UTF-8 输出的守卫函数", callable(_force_utf8_stdio), True)
+check("M9", "守卫执行后 stdout 编码应为 UTF-8（Windows 控制台不再崩）",
+      (getattr(sys.stdout, "encoding", "") or "").lower().replace("-", ""),
+      "utf8")
+
+
 # ============================================================ 汇总
 
 print("\n" + "=" * 60)

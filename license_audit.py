@@ -52,6 +52,7 @@ v0.3 增补（并发、诚实性、可复现性）：
 import argparse
 import json
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -60,6 +61,28 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 VERSION = "0.4"
+
+
+def _force_utf8_stdio():
+    """把 stdout / stderr 强制成 UTF-8，避免 Windows 上打印中文直接崩溃。
+
+    背景：Windows 控制台的默认编码取决于系统区域（英文系统是 cp1252，
+    中文系统是 cp936）。本项目大量输出中文，一旦落到 cp1252 就会抛
+    UnicodeEncodeError——CI 的 windows-latest 三个 job 全部因此失败，
+    本机是英文区域 Windows 的用户同样无法运行。
+
+    放在模块层而不是各脚本里：其余脚本都 import 本模块，导入即生效，
+    无需在每个入口脚本重复一遍。Python 3.7+ 支持 reconfigure，
+    更早版本静默跳过（3.8 是本项目的最低要求，这里只是保守兜底）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_force_utf8_stdio()
 
 PYPI = "https://pypi.org/pypi/{name}/json"
 NPM = "https://registry.npmjs.org/{name}/latest"
@@ -938,32 +961,206 @@ def parse_pyproject_verbose(path: Path):
       · Poetry   [tool.poetry.dependencies] / [tool.poetry.group.*.dependencies]
     """
     raw = path.read_text(encoding="utf-8-sig", errors="replace")
-    out = {}
     try:
         import tomllib
         d = tomllib.loads(raw)
     except ImportError:                      # Python < 3.11 无 tomllib
-        return [(n, "") for n in _parse_pyproject_regex(raw)]
+        d = _toml_loads(raw)                 # 内置 TOML 子集解析，保证结果一致
     except Exception as e:
         raise SystemExit(f"pyproject.toml 解析失败：{e}")
+    return _pyproject_deps(d)
 
+
+def parse_pyproject(path: Path):
+    return [n for n, _ in parse_pyproject_verbose(path)]
+
+
+def _parse_pyproject_regex(raw):
+    """无 tomllib 时的降级解析（保留兼容，内部已改用 _toml_loads）。"""
+    return sorted({n for n, _s in _pyproject_deps(_toml_loads(raw))})
+
+
+# ---------------------------------------------------------------- 最小 TOML 解析
+#
+# tomllib 是 Python 3.11 才进标准库的，而本项目声明支持 Python 3.8+，
+# 又坚持零第三方依赖（不能引入 tomli）。
+# 原来的降级方案是正则扫 dependencies 数组，实测在 Python 3.8/3.9/3.10 上
+# 会丢版本约束、还会把 `name = "demo"` 这种无关键当成包名（C1/C3/E13 三个
+# CI job 因此失败）。这里改用一个够用的 TOML 子集解析器：
+# 只支持注释、表头、字符串、字符串数组、内联表——恰好覆盖
+# PEP 621 / PEP 735 / Poetry 三种写法。
+
+def _toml_strip_comment(s):
+    """去掉行尾注释，但不影响引号内的 # 号。"""
+    out, quote = [], None
+    for ch in s:
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch == "#":
+            break
+        else:
+            if ch in "\"'":
+                quote = ch
+            out.append(ch)
+    return "".join(out).strip()
+
+
+def _toml_split_top(s, sep=","):
+    """按顶层分隔符切分，引号内与嵌套括号内的分隔符不参与切分。"""
+    parts, buf, quote, depth = [], [], None, 0
+    for ch in s:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'":
+            quote = ch
+            buf.append(ch)
+        elif ch in "[{":
+            depth += 1
+            buf.append(ch)
+        elif ch in "]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == sep and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        parts.append("".join(buf))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _toml_key(s):
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        return s[1:-1]
+    return s
+
+
+def _toml_scalar(s):
+    s = _toml_strip_comment(s).strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        return s[1:-1]
+    if s in ("true", "false"):
+        return s == "true"
+    for cast in (int, float):
+        try:
+            return cast(s)
+        except ValueError:
+            continue
+    return s
+
+
+def _toml_inline_table(s):
+    s = s.strip()
+    if s.startswith("{"):
+        s = s[1:]
+    if s.endswith("}"):
+        s = s[:-1]
+    out = {}
+    for part in _toml_split_top(s):
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        out[_toml_key(k)] = _toml_scalar(v)
+    return out
+
+
+def _toml_array(s):
+    s = _toml_strip_comment(s).strip()
+    inner = s[1:].rstrip()
+    if inner.endswith("]"):
+        inner = inner[:-1]
+    items = []
+    for part in _toml_split_top(inner):
+        if part.startswith("{"):
+            items.append(_toml_inline_table(part))
+        else:
+            items.append(_toml_scalar(part))
+    return items
+
+
+def _toml_loads(raw):
+    """解析 TOML 子集，返回嵌套 dict。用于 Python < 3.11（无 tomllib）。"""
+    root, cur = {}, None
+    lines = raw.splitlines()
+    i = 0
+    while i < len(lines):
+        line = _toml_strip_comment(lines[i])
+        i += 1
+        if not line:
+            continue
+        if line.startswith("["):
+            if "]" not in line:
+                continue
+            path = [_toml_key(p) for p in _toml_split_top(line[1:line.index("]")], ".")]
+            node = root
+            for key in path:
+                nxt = node.get(key)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    node[key] = nxt
+                node = nxt
+            cur = node
+            continue
+        if "=" not in line or cur is None:
+            continue
+        key, _, rest = line.partition("=")
+        key = _toml_key(key)
+        rest = rest.strip()
+        # 数组 / 内联表可能跨行，先拼完整再解析
+        if rest.startswith("[") and "]" not in rest:
+            while i < len(lines) and "]" not in rest:
+                rest += " " + _toml_strip_comment(lines[i])
+                i += 1
+            cur[key] = _toml_array(rest)
+        elif rest.startswith("{") and "}" not in rest:
+            while i < len(lines) and "}" not in rest:
+                rest += " " + _toml_strip_comment(lines[i])
+                i += 1
+            cur[key] = _toml_inline_table(rest)
+        elif rest.startswith("["):
+            cur[key] = _toml_array(rest)
+        elif rest.startswith("{"):
+            cur[key] = _toml_inline_table(rest)
+        else:
+            cur[key] = _toml_scalar(rest)
+    return root
+
+
+def _pyproject_deps(d):
+    """从已解析的 pyproject 字典里抽出 [(包名, 版本约束), ...]。
+
+    与 tomllib 路径共用同一套抽取逻辑，保证有无 tomllib 的结果一致。
+    """
+    out = {}
     proj = d.get("project") or {}
     for spec in proj.get("dependencies") or []:
+        if not isinstance(spec, str):
+            continue
         n = _name_of(spec)
         if n:
             out.setdefault(n, _spec_after(spec, n))
     for group in (proj.get("optional-dependencies") or {}).values():
         for spec in group or []:
+            if not isinstance(spec, str):
+                continue
             n = _name_of(spec)
             if n:
                 out.setdefault(n, _spec_after(spec, n))
 
     for group in (d.get("dependency-groups") or {}).values():
         for spec in group or []:
-            if isinstance(spec, str):
-                n = _name_of(spec)
-                if n:
-                    out.setdefault(n, _spec_after(spec, n))
+            if not isinstance(spec, str):
+                continue
+            n = _name_of(spec)
+            if n:
+                out.setdefault(n, _spec_after(spec, n))
 
     poetry = ((d.get("tool") or {}).get("poetry") or {})
     for name, val in (poetry.get("dependencies") or {}).items():
@@ -974,33 +1171,6 @@ def parse_pyproject_verbose(path: Path):
             if name.lower() != "python":
                 out.setdefault(name, _poetry_constraint(val))
     return sorted(out.items())
-
-
-def parse_pyproject(path: Path):
-    return [n for n, _ in parse_pyproject_verbose(path)]
-
-
-def _parse_pyproject_regex(raw):
-    """无 tomllib 时的降级解析：够用即可，覆盖 requirements 数组的常见写法。"""
-    out = set()
-    in_deps = False
-    for line in raw.splitlines():
-        s = line.strip()
-        if re.match(r"^dependencies\s*=\s*\[", s):
-            in_deps = True
-            s = s.split("[", 1)[1]
-        if in_deps:
-            m = re.search(r"[\"']([^\"']+)[\"']", s)
-            if m:
-                n = _name_of(m.group(1))
-                if n:
-                    out.add(n)
-            if "]" in s:
-                in_deps = False
-        m = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.\-]*)\s*=\s*[\"{]", s)
-        if m and m.group(1).lower() != "python":
-            out.add(m.group(1))
-    return sorted(out)
 
 
 # ---------------------------------------------------------------- 冲突检测

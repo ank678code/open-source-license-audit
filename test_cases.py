@@ -679,6 +679,13 @@ check("K23", "新增类别后 unknown 仍排在最严位置",
       CATEGORY_RANK["unknown"] > CATEGORY_RANK["source-available"]
       > CATEGORY_RANK["network-copyleft"], True)
 
+# K24-K25 离线重算历史扫描数据时实测到的漏判
+#     Bottleneck 的 license 字段只有 "Simplified BSD"，此前落 UNKNOWN
+check("K24", '"Simplified BSD" 应识别为 BSD-2-Clause（Bottleneck 实用写法）',
+      normalize_license("Simplified BSD"), "BSD-2-Clause")
+check("K25", '"FreeBSD" 同为 BSD-2-Clause',
+      normalize_license("FreeBSD"), "BSD-2-Clause")
+
 
 # ============================================================ L. 未识别项归因（v0.4）
 # 来源：核对报告 3.2。此前所有"没认出来"统一记为 UNKNOWN 并计入未识别，
@@ -734,6 +741,30 @@ _f = detect_conflicts("MIT", [{"name": "weird", "source": "PyPI", "version": "1.
                                "confidence": "高", "deps": [], "status": "OK"}])
 check("L12", "知识库未收录的处理建议应指向补充知识库",
       "知识库" in "".join(x["advice"] for x in _f), True)
+
+# L13-L16 占位值不算"工具的问题"
+#   离线重算历史扫描数据时发现：rouge 的 license 字段就是字面量 "LICENCE.txt"。
+#   它不是"知识库没收录的写法"，而是"源站压根没给许可证信息"。
+#   若归到 UNSUPPORTED_LICENSE，会把源站的问题算到工具头上，
+#   让"应由工具改进"这个指标虚高，反而失去指导意义。
+from license_audit import is_placeholder_license
+check("L13", '文件名占位值 "LICENCE.txt" 应归因 NO_METADATA 而非知识库未收录',
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": "LICENCE.txt"}), "NO_METADATA")
+check("L14", "占位词与文件名都应被判为占位",
+      [is_placeholder_license(v) for v in
+       ("", "LICENCE.txt", "LICENSE", "see license", "Copying", "N/A", "unknown")],
+      [True] * 7)
+check("L15", "真实许可证写法不能被误判为占位",
+      [is_placeholder_license(v) for v in
+       ("ZPL-9.9", "NVIDIA LICENSE AGREEMENT This NVIDIA License Agreement ...")],
+      [False, False])
+check("L16", "占位值的处理建议应指向人工核对上游 LICENSE 文件",
+      "LICENSE 文件" in "".join(x["advice"] for x in detect_conflicts(
+          "MIT", [{"name": "rouge", "source": "PyPI", "version": "1.0",
+                   "license_raw": "LICENCE.txt", "spdx": "UNKNOWN",
+                   "license_field": "license 截断(低可信)", "confidence": "低",
+                   "deps": [], "status": "OK"}])), True)
 
 
 # ============================================================ M. 跨 Python 版本一致性（v0.4）

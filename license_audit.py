@@ -59,7 +59,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "0.3"
+VERSION = "0.4"
 
 PYPI = "https://pypi.org/pypi/{name}/json"
 NPM = "https://registry.npmjs.org/{name}/latest"
@@ -103,6 +103,9 @@ SPDX_PATTERNS = [
     (r"GNU\s+LGPL\s*v?2\b", "LGPL-2.0-only"),
     (r"GNU\s+GPL\s*v?3", "GPL-3.0-only"),
     (r"GNU\s+GPL\s*v?2\b", "GPL-2.0-only"),
+    # v0.4 增补：Apache-1.1 必须排在通用 Apache 规则之前，否则
+    # "Apache License 1.1" 会被通用规则判成 Apache-2.0（两者条款差异很大）。
+    (r"^Apache[- ]?1\.1|^Apache[- ]?(Software )?License[- ]?v?1\.1", "Apache-1.1"),
     (r"^Apache[- ]?(Software )?License", "Apache-2.0"),
     (r"^Apache[- ]?2", "Apache-2.0"),
     # v0.3 增补：只写裸家族名 "Apache"。Apache License 的 1.0/1.1/2.0 全部是
@@ -131,7 +134,10 @@ SPDX_PATTERNS = [
     (r"^WTFPL", "WTFPL"),
     (r"^Artistic[- ]?2", "Artistic-2.0"),
     (r"^PostgreSQL", "PostgreSQL"),
-    (r"^(?:BSL[- ]?1|Boost Software)", "BSL-1.0"),
+    # v0.4 修正：BSL-1.0 是 Boost Software License，而 BSL-1.1 是 Business Source
+    # License——两者前缀相同、条款完全相反（宽松 vs. 限制商业使用）。
+    # 原写法 `BSL[- ]?1` 会把 BSL-1.1 一并吃掉并判成宽松许可，属于高危误判。
+    (r"^(?:BSL[- ]?1(?![.\d])|BSL[- ]?1\.0|Boost Software)", "BSL-1.0"),
     (r"^Mulan\s*PSL|木兰", "MulanPSL-2.0"),
     (r"^CDDL|Common Development and Distribution", "CDDL-1.0"),
     (r"^EUPL", "EUPL-1.2"),
@@ -143,6 +149,31 @@ SPDX_PATTERNS = [
     (r"Public Domain|Historical Permission", "HPND"),
     (r"^BlueOak", "BlueOak-1.0.0"),          # npm 生态常见，rimraf 等包在用
     (r"^zlib", "Zlib"),
+    # ------------------------------------------------------------------
+    # v0.4 增补：非 OSI / 源码可得许可，以及真实生态里高频但此前漏掉的写法。
+    # 这段必须放在 GPL/LGPL/AGPL 兜底规则之前，否则 "Server Side Public
+    # License" 之类的写法会被裸家族兜底规则吃掉。
+    # ------------------------------------------------------------------
+    (r"^ZPL[- ]?v?2\.1", "ZPL-2.1"),
+    (r"^ZPL\b|Zope Public", "ZPL-2.1"),
+    (r"^Elastic[- ]?(License )?2|Elastic License", "Elastic-2.0"),
+    (r"^BUSL|^(?:BUSL|BSL)[- ]?1\.1|Business Source License", "BSL-1.1"),
+    (r"^SSPL|Server Side Public", "SSPL-1.0"),
+    (r"^CC[- ]?BY[- ]?SA[- ]?4", "CC-BY-SA-4.0"),
+    (r"^CC[- ]?BY[- ]?4|^CC[- ]?BY\b|Creative Commons Attribution", "CC-BY-4.0"),
+    (r"^OFL[- ]?1|SIL Open Font", "OFL-1.1"),
+    (r"^Ruby\b|Ruby License", "Ruby"),
+    (r"^MS[- ]?PL\b|Microsoft Public", "MS-PL"),
+    (r"^MS[- ]?RL\b|Microsoft Reciprocal", "MS-RL"),
+    (r"^NCSA|University of Illinois", "NCSA"),
+    (r"^UPL[- ]?1|Universal Permissive", "UPL-1.0"),
+    (r"^Vim\b|Vim License", "Vim"),
+    (r"^BSD[- ]?4|4[- ]?Clause BSD", "BSD-4-Clause"),
+    (r"^MPL[- ]?v?[- ]?1\.1", "MPL-1.1"),
+    (r"^EPL[- ]?v?[- ]?1\.0", "EPL-1.0"),
+    (r"^W3C", "W3C"),
+    (r"^libpng|PNG Reference Library", "Libpng"),
+    (r"^Unicode[- ]?DFS", "Unicode-DFS-2016"),
     # 兜底：只写了家族名、没写版本号。类别可判定，但版本须人工确认，
     # 单列 -unknown 标识以免给出错误版本的确定性结论。
     (r"\bLGPL\b|Lesser General Public", "LGPL-unknown"),
@@ -185,19 +216,179 @@ LICENSE_DB = {
     "GPL-unknown":    ("strong-copyleft",   "衍生作品需以 GPL 开放源码（具体版本待人工确认）"),
     "LGPL-unknown":   ("weak-copyleft",     "动态链接可用；修改库本体需以 LGPL 开放（具体版本待人工确认）"),
     "AGPL-unknown":   ("network-copyleft",  "网络服务对外提供即触发源码开放义务（具体版本待人工确认）"),
+    # ------------------------------------------------------------------
+    # v0.4 增补：知识库此前只收录 33 种，实测已造成真实漏判——
+    # zope.interface(ZPL-2.1)、arize-phoenix(Elastic-2.0)、
+    # todomvc-app-css(CC-BY-4.0) 三个包的源站都给了明确许可证，
+    # 工具却一律降级成 UNKNOWN。以下按 SPDX 标准标识补齐。
+    # ------------------------------------------------------------------
+    # 宽松许可（OSI 认证或等效宽松）
+    "ZPL-2.1":        ("permissive",        "保留版权与许可声明；修改需在文件头注明变更（Zope 公共许可证）"),
+    "OFL-1.1":        ("permissive",        "保留版权与许可声明；字体衍生品不得使用保留字体名（SIL 开放字体许可）"),
+    "Ruby":           ("permissive",        "保留版权与许可声明（Ruby 许可，与 GPL-2.0 双许可可任选其一）"),
+    "MS-PL":          ("permissive",        "保留版权与许可声明（微软公共许可）"),
+    "NCSA":           ("permissive",        "保留版权与许可声明（伊利诺伊大学 NCSA 开源许可，BSD 风格）"),
+    "UPL-1.0":        ("permissive",        "保留版权与许可声明，含明确的专利授权（Oracle 通用许可）"),
+    "Vim":            ("permissive",        "保留版权与许可声明；鼓励向乌干达儿童捐款（慈善软件条款，非强制义务）"),
+    "BSD-4-Clause":   ("permissive",        "保留版权与许可声明，且所有宣传材料须提及本软件来源（第 3 条广告条款）"),
+    "W3C":            ("permissive",        "保留版权与许可声明（W3C 软件许可，含免责声明）"),
+    "Libpng":         ("permissive",        "保留版权与许可声明（libpng 许可，zlib 风格）"),
+    "Unicode-DFS-2016": ("permissive",      "保留版权与许可声明（Unicode 数据文件许可，仅限数据与软件分发）"),
+    "Apache-1.1":     ("permissive",        "保留版权与许可声明及变更说明；与 GPL-2.0 不兼容"),
+    # 弱传染
+    "MPL-1.1":        ("weak-copyleft",     "MPL 覆盖的文件需以 MPL 开放源码（文件级隔离）"),
+    "EPL-1.0":        ("weak-copyleft",     "EPL 覆盖的模块需以 EPL 开放源码（模块级隔离）"),
+    "MS-RL":          ("weak-copyleft",     "修改过的源文件需以 MS-RL 开放源码（文件级隔离）"),
+    # 强传染 / 网络传染（非 OSI，但条款性质明确）
+    "CC-BY-SA-4.0":   ("strong-copyleft",   "衍生作品需以 CC-BY-SA-4.0 同等许可开放（相同方式共享）"),
+    "SSPL-1.0":       ("network-copyleft",  "对外提供服务时须开放整个服务栈源码，义务范围比 AGPL 更广"),
+    # 源码可得（source-available）：能拿到源码，但附带商业使用限制
+    "Elastic-2.0":    ("source-available",  "不得作为托管服务对外提供；不得规避付费功能限制；不得移除版权与许可声明"),
+    "BSL-1.1":        ("source-available",  "变更日之前限制生产环境商业使用，到期后转为开源许可"),
+    # 非 OSI 但条款宽松的内容许可，用于软件时解释存在不确定性
+    "CC-BY-4.0":      ("permissive",        "署名即可自由使用；不含专利授权条款（内容许可，非软件许可）"),
     "UNKNOWN":        ("unknown",           "许可证未识别，须人工确认后方可分发"),
 }
+
+# 非 OSI 认证许可 / 带附加限制的许可：识别出来还不够，必须显式说出商业后果。
+#
+# 这类许可此前一律落进 UNKNOWN 标成"待确认"。保守是对的，但对使用者没有帮助——
+# 他只知道"不知道"，不知道"风险在哪"。这里给出可执行的提示。
+NON_OSI_NOTES = {
+    "Elastic-2.0": "非 OSI 认证许可：禁止将本软件作为托管服务对外提供，"
+                   "禁止规避付费功能限制——商业 SaaS 场景需单独取得商业授权",
+    "BSL-1.1": "非 OSI 认证许可：变更日之前不得用于生产环境商业用途，"
+               "到期后自动转为开源许可（具体日期见上游 LICENSE 文件）",
+    "SSPL-1.0": "非 OSI 认证许可（SSPL 未获 OSI 批准，部分发行版不视为开源）："
+                "对外提供服务时须开放整个服务栈源码，义务范围比 AGPL 更广",
+    "CC-BY-4.0": "非 OSI 认证许可：这是 Creative Commons 内容许可，不是软件许可，"
+                 "不含专利授权条款，用于软件时条款解释存在不确定性",
+    "CC-BY-SA-4.0": "非 OSI 认证许可：相同方式共享条款会传染衍生作品，"
+                    "且不含专利授权，与多数软件许可证不兼容",
+    "BSD-4-Clause": "含第 3 条广告条款（宣传材料须提及本软件来源），"
+                    "与 GPL 系列不兼容，已被 BSD-3-Clause 取代",
+    "Apache-1.1": "Apache-1.1 已过时且与 GPL-2.0 不兼容（专利终止条款），建议上游升级到 Apache-2.0",
+    "Ruby": "Ruby 许可与 GPL-2.0 双许可，可任选其一；选择 GPL 分支时须遵守 GPL 义务",
+    "Vim": "Vim 许可含慈善捐款请求（非强制义务），但条款明确要求保留声明",
+    "OFL-1.1": "字体许可：衍生字体不得使用保留字体名（RFN），且不得单独出售字体文件",
+    "Unicode-DFS-2016": "仅限 Unicode 数据与配套软件：未经许可不得用于其他数据集",
+    "MPL-1.1": "MPL-1.1 与 GPL 不兼容（1.1 版无 GPL 兼容条款），MPL-2.0 才解决该问题",
+}
+
+
+def commercial_note(spdx):
+    """返回该许可证的非 OSI / 附加限制提示；没有则返回 None。
+
+    与 obligations_of 分开的原因：义务是"你必须做什么"，而这里是
+    "这个许可本身有什么坑"——后者在知识库收录之后才可能被说出来。
+    """
+    if not spdx or spdx == "UNKNOWN":
+        return None
+    base = re.sub(r"-or-later$", "-only", spdx)
+    return NON_OSI_NOTES.get(spdx) or NON_OSI_NOTES.get(base)
+
+
+# ---------------------------------------------------------------- 未识别项归因
+#
+# 修复前：所有"没识别出许可证"的依赖统一记为 UNKNOWN、统一计入未识别，
+# 于是 97.8% 这个识别率同时惩罚了两种完全不同性质的事：
+#   · 源站根本没有这个包 / 根本没填许可证  → 工具无能为力，不该算工具的错
+#   · 源站写了 ZPL-2.1，工具的知识库不认  → 这才是工具该改进的地方
+# 混在一起，识别率这个数字既不能指导改进，也不能对外解释。
+#
+# 现在按四种性质分开统计，其中只有 UNSUPPORTED_LICENSE 归因于工具自身。
+UNKNOWN_KINDS = ("NOT_IN_REGISTRY", "NO_METADATA", "UNSUPPORTED_LICENSE",
+                 "FETCH_FAILED")
+
+UNKNOWN_KIND_CN = {
+    "NOT_IN_REGISTRY": "源站无此包",
+    "NO_METADATA": "源站未填许可证",
+    "UNSUPPORTED_LICENSE": "知识库未收录",
+    "FETCH_FAILED": "网络获取失败",
+}
+
+# 是否应归因于工具自身（唯一会拉低"工具真实识别能力"的一类）
+UNKNOWN_KIND_TOOL_FAULT = {"UNSUPPORTED_LICENSE"}
+
+UNKNOWN_KIND_ADVICE = {
+    "NOT_IN_REGISTRY": "确认包名拼写、是否为私有包或已下架；私有包请人工补填许可证后再纳入清单",
+    "NO_METADATA": "源站未提供许可证字段，须人工核对上游仓库 LICENSE 文件后补填",
+    "UNSUPPORTED_LICENSE": "源站已给出许可证但本工具知识库未收录该写法，"
+                           "可将该写法提交到 SPDX_PATTERNS / LICENSE_DB 补充",
+    "FETCH_FAILED": "网络超时或限流导致未取到元数据，重跑即可（非许可证问题）",
+}
+
+
+def classify_unknown(rec):
+    """对一条 spdx == UNKNOWN 的记录做性质归类；已识别的记录返回 None。
+
+    归类只依据记录自身已有的字段（status / license_raw），不重新发起网络请求，
+    因此对离线快照同样有效。
+    """
+    if not rec or rec.get("spdx") != "UNKNOWN":
+        return None
+    kind = rec.get("unknown_kind")
+    if kind in UNKNOWN_KINDS:
+        return kind
+    # 兼容：记录里没有 unknown_kind 字段时（例如旧快照或手工构造的用例）按现状反推
+    st = rec.get("status")
+    if st == "NOT_FOUND":
+        return "NOT_IN_REGISTRY"
+    if st == "FETCH_ERROR":
+        return "FETCH_FAILED"
+    if not (rec.get("license_raw") or "").strip():
+        return "NO_METADATA"
+    return "UNSUPPORTED_LICENSE"
+
+
+def unknown_breakdown(records):
+    """未识别项的四分类计数，未出现的类别也补 0，便于直接落 JSON。"""
+    out = {k: 0 for k in UNKNOWN_KINDS}
+    for r in records or []:
+        k = classify_unknown(r)
+        if k:
+            out[k] += 1
+    return out
+
+
+def tool_attributable_unknown(records):
+    """应当归因于工具自身的未识别项数量（知识库未收录的写法）。
+
+    这是唯一"补知识库就能降下来"的数字，与源站数据质量无关。
+    """
+    return sum(1 for r in records or []
+               if classify_unknown(r) in UNKNOWN_KIND_TOOL_FAULT)
+
+
+def effective_resolve_rate(records):
+    """剔除源站客观无数据后的识别率，与原始识别率并列展示。
+
+    effective = 1 - (知识库未收录 + 网络失败) / 总数
+    即：把"源站压根没给数据"的部分从分母里排除，只看工具该认出来而没认出来的。
+    """
+    recs = list(records or [])
+    if not recs:
+        return 0.0
+    b = unknown_breakdown(recs)
+    bad = b["UNSUPPORTED_LICENSE"] + b["FETCH_FAILED"]
+    return round(100.0 * (len(recs) - bad) / len(recs), 1)
 
 CATEGORY_CN = {
     "permissive": "宽松许可",
     "weak-copyleft": "弱传染",
     "strong-copyleft": "强传染",
     "network-copyleft": "网络传染",
+    "source-available": "源码可得（非 OSI）",
     "unknown": "未识别",
 }
-# 传染强度排序，用于复合表达式取最严格者
+# 传染强度排序，用于复合表达式取最严格者。
+# v0.4 增补 source-available：源码能拿到，但附带商业使用限制。
+# 它比强传染更"严"——强传染只要求开源，源码可得许可是直接用不了，
+# 因此排在 network-copyleft 之后、unknown 之前。
 CATEGORY_RANK = {"permissive": 0, "weak-copyleft": 1, "strong-copyleft": 2,
-                 "network-copyleft": 3, "unknown": 4}
+                 "network-copyleft": 3, "source-available": 4, "unknown": 5}
+# 取不到类别时按 unknown 计，写死 4 会在 v0.4 之后错误地落到 source-available
+UNKNOWN_RANK = CATEGORY_RANK["unknown"]
 
 # 项目自身许可证 -> 允许的依赖类别（自主设计的兼容性矩阵）
 #
@@ -254,6 +445,29 @@ COMPAT_MATRIX = {
     # 网络传染项目
     "AGPL-3.0-only": _COPYLEFT_PROJECT | {"network-copyleft"},
     "AGPL-unknown": _COPYLEFT_PROJECT | {"network-copyleft"},
+    "SSPL-1.0": _COPYLEFT_PROJECT | {"network-copyleft"},
+    # v0.4 增补：知识库扩容后同步补齐矩阵，避免这些标识作为项目自身许可证时
+    # 静默退化成"任何传染性依赖都报冲突"
+    "ZPL-2.1": _PERMISSIVE_PROJECT,
+    "OFL-1.1": _PERMISSIVE_PROJECT,
+    "Ruby": _PERMISSIVE_PROJECT,
+    "MS-PL": _PERMISSIVE_PROJECT,
+    "NCSA": _PERMISSIVE_PROJECT,
+    "UPL-1.0": _PERMISSIVE_PROJECT,
+    "Vim": _PERMISSIVE_PROJECT,
+    "BSD-4-Clause": _PERMISSIVE_PROJECT,
+    "W3C": _PERMISSIVE_PROJECT,
+    "Libpng": _PERMISSIVE_PROJECT,
+    "Unicode-DFS-2016": _PERMISSIVE_PROJECT,
+    "Apache-1.1": _PERMISSIVE_PROJECT,
+    "CC-BY-4.0": _PERMISSIVE_PROJECT,
+    "MPL-1.1": _PERMISSIVE_PROJECT,
+    "EPL-1.0": _PERMISSIVE_PROJECT,
+    "MS-RL": _PERMISSIVE_PROJECT,
+    "CC-BY-SA-4.0": _COPYLEFT_PROJECT,
+    # 源码可得项目：自身受商业限制，但引入的依赖仍按"不得引入更强传染"判定
+    "Elastic-2.0": _PERMISSIVE_PROJECT,
+    "BSL-1.1": _PERMISSIVE_PROJECT,
 }
 
 # 矩阵未覆盖项目许可证时的提示语（不再静默按"一律冲突"处理）
@@ -408,7 +622,7 @@ def category_of(spdx):
         groups.append(cur)
     strict_ranks = []
     for g in groups:
-        ranks = [CATEGORY_RANK.get(_category_single(x), 4) for x in g]
+        ranks = [CATEGORY_RANK.get(_category_single(x), UNKNOWN_RANK) for x in g]
         strict_ranks.append(max(ranks))       # AND 组内取最严格
     best_rank = min(strict_ranks)             # OR 组间取最宽松
     for c, r in CATEGORY_RANK.items():
@@ -505,7 +719,9 @@ def _get(url, tries=3):
 def _blank(name, source, version, status):
     return {"name": name, "source": source, "version": version,
             "license_raw": "", "spdx": "UNKNOWN", "license_field": "无",
-            "confidence": "无", "deps": [], "status": status}
+            "confidence": "无", "deps": [], "status": status,
+            "unknown_kind": "FETCH_FAILED" if status == "FETCH_ERROR"
+                            else "NOT_IN_REGISTRY"}
 
 
 def _version_completion(spdx, lic_text):
@@ -592,11 +808,14 @@ def fetch_pypi(name, version=None):
         m = re.match(r"^([A-Za-z0-9_.\-]+)", req.strip())
         if m:
             deps.append(m.group(1))
+    spdx = normalize_license(raw)
     return {"name": info.get("name") or name, "source": "PyPI",
             "version": info.get("version") or version or "?",
-            "license_raw": raw[:160], "spdx": normalize_license(raw),
+            "license_raw": raw[:160], "spdx": spdx,
             "license_field": field, "confidence": conf,
-            "deps": deps, "status": "OK"}
+            "deps": deps, "status": "OK",
+            "unknown_kind": classify_unknown({"spdx": spdx, "status": "OK",
+                                              "license_raw": raw[:160]})}
 
 
 def fetch_npm(name, version=None):
@@ -612,12 +831,15 @@ def fetch_npm(name, version=None):
     if not raw and d.get("licenses"):
         lic = d["licenses"]
         raw = lic[0].get("type", "") if isinstance(lic, list) and lic else ""
+    spdx = normalize_license(str(raw))
     return {"name": d.get("name") or name, "source": "npm",
             "version": d.get("version") or "?",
-            "license_raw": str(raw)[:160], "spdx": normalize_license(str(raw)),
+            "license_raw": str(raw)[:160], "spdx": spdx,
             "license_field": "license",
             "confidence": "高" if str(raw).strip() else "无",
-            "deps": list((d.get("dependencies") or {}).keys()), "status": "OK"}
+            "deps": list((d.get("dependencies") or {}).keys()), "status": "OK",
+            "unknown_kind": classify_unknown({"spdx": spdx, "status": "OK",
+                                              "license_raw": str(raw)[:160]})}
 
 
 # ---------------------------------------------------------------- 清单解析
@@ -658,6 +880,29 @@ def parse_package_json_verbose(path: Path):
 
 def parse_package_json(path: Path):
     return [n for n, _ in parse_package_json_verbose(path)]
+
+
+def split_workspace_deps(pairs):
+    """把 [(包名, 版本范围), ...] 拆成 (外部依赖, 工作区内部包)。
+
+    monorepo 里版本写作 "workspace:*" / "workspace:^" 的依赖是项目自身
+    代码、根本不发布到 npm。若不排除，它们会被当成第三方依赖去查：
+    查不到就记「未识别」，还判成风险项——归因完全错了。
+    实测 lobe-chat 因此被误报 29 条风险项、识别率被拉到 58.6%。
+
+    判定只依据 `workspace:` 协议标记，绝不按包名猜测：`@scope/xxx` 里既
+    有内部包，也有真实发布的第三方包（`@vercel/og`、`@anthropic-ai/sdk`），
+    按名字猜必然出错。
+
+    返回两个列表，各自保持输入顺序：工作区内部包会被审计流程排除。
+    """
+    external, internal = [], []
+    for name, spec in pairs:
+        if str(spec or "").strip().startswith("workspace:"):
+            internal.append(name)
+        else:
+            external.append(name)
+    return external, internal
 
 
 _REQ_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)")
@@ -798,10 +1043,12 @@ def detect_conflicts(project_license, records, transitive_limit=0):
 
     for r in records:
         if r["status"] != "OK":
+            kind = classify_unknown(r) or "NOT_IN_REGISTRY"
             findings.append({
                 "level": "中", "pkg": r["name"], "license": r["spdx"],
-                "reason": f"无法从 {r['source']} 获取元数据（{r['status']}），许可证状态未知",
-                "advice": "人工核对仓库 LICENSE 文件后补填清单",
+                "reason": f"无法从 {r['source']} 获取元数据（{r['status']}）——"
+                          f"归因：{UNKNOWN_KIND_CN.get(kind, kind)}，许可证状态未知",
+                "advice": UNKNOWN_KIND_ADVICE.get(kind, "人工核对仓库 LICENSE 文件后补填清单"),
             })
             continue
         cat = category_of(r["spdx"])
@@ -814,11 +1061,26 @@ def detect_conflicts(project_license, records, transitive_limit=0):
 
         if cat == "unknown":
             low = r.get("confidence") in ("低", "无")
+            # v0.4：同样是"没认出来"，性质完全不同，处理建议也不同——
+            # 源站压根没填 → 只能人工补；知识库没收录 → 补知识库就能修好。
+            kind = classify_unknown(r) or "NO_METADATA"
             findings.append({
                 "level": "中" if low else "高", "pkg": r["name"], "license": r["spdx"],
-                "reason": f"许可证无法识别{note}（字段来源：{r.get('license_field','?')}，"
+                "reason": f"许可证无法识别{note}——归因：{UNKNOWN_KIND_CN.get(kind, kind)}"
+                          f"（字段来源：{r.get('license_field','?')}，"
                           f"可信度 {r.get('confidence','?')}，原始值：{r['license_raw'] or '空'}）",
-                "advice": "人工核对仓库 LICENSE 文件后补填清单，不得直接纳入分发范围",
+                "advice": UNKNOWN_KIND_ADVICE.get(
+                    kind, "人工核对仓库 LICENSE 文件后补填清单，不得直接纳入分发范围"),
+            })
+        elif cat == "source-available":
+            # 源码可得许可此前会落进 UNKNOWN 标成"待确认"，使用者只知道"不知道"，
+            # 不知道风险在哪。这里显式说出商业限制。
+            note2 = commercial_note(r["spdx"]) or "附带商业使用限制"
+            findings.append({
+                "level": "高", "pkg": r["name"], "license": r["spdx"],
+                "reason": f"源码可得许可（非 OSI）{note}：{note2}",
+                "advice": "确认使用场景是否落入限制范围（尤其是作为托管服务对外提供）；"
+                          "否则替换为 Apache-2.0 / MIT 等 OSI 认证替代品",
             })
         elif cat == "network-copyleft":
             findings.append({
@@ -929,13 +1191,19 @@ def to_checklist_table(records, judgments=None):
         j = judgments.get(r["name"]) or {}
         usage = j.get("使用方式") or PENDING_USAGE
         boundary = j.get("自主开发边界") or PENDING_BOUNDARY
+        # v0.4：非 OSI / 带附加限制的许可，把"这个许可本身有什么坑"写进义务列，
+        # 否则使用者只知道许可证名字，看不出商业风险。
+        obs = obligations_of(r["spdx"])
+        cn = commercial_note(r["spdx"])
+        if cn:
+            obs += "；⚠ " + cn
         lines.append("| {} | {} 依赖包 | {} | {} | {} | {}（可信度{}） | "
                      "{} | {} | {} | {} | "
                      "随项目一并声明许可 |".format(
                          r["name"], r["source"], r["version"], r["source"],
                          r["spdx"] if r["spdx"] != "UNKNOWN" else "未识别",
                          r.get("license_field", "?"), r.get("confidence", "?"),
-                         usage, obligations_of(r["spdx"]), boundary, status))
+                         usage, obs, boundary, status))
     return "\n".join(lines)
 
 
@@ -955,24 +1223,47 @@ def main():
     a = ap.parse_args()
 
     specs = {}
-    if a.requirements:
-        vpkgs = parse_requirements_verbose(Path(a.requirements))
-        pkgs, source = [n for n, _ in vpkgs], "PyPI"
-        specs = {n.lower(): s for n, s in vpkgs}
-    elif a.pyproject:
-        vpkgs = parse_pyproject_verbose(Path(a.pyproject))
-        pkgs, source = [n for n, _ in vpkgs], "PyPI"
-        specs = {n.lower(): s for n, s in vpkgs}
-    elif a.package_json:
-        vpkgs = parse_package_json_verbose(Path(a.package_json))
-        pkgs, source = [n for n, _ in vpkgs], "npm"
-        specs = {n.lower(): s for n, s in vpkgs}
-    elif a.packages:
-        pkgs, source = a.packages, "PyPI"
-    else:
-        ap.error("需要 --requirements / --pyproject / --package-json / --packages 之一")
+    # 清单解析失败（文件不存在、JSON/TOML 语法错误等）时给出可读提示，
+    # 而不是抛出 Python 堆栈——面向学生用户，堆栈会让人以为工具坏了。
+    try:
+        if a.requirements:
+            path = Path(a.requirements)
+            if not path.exists():
+                ap.error(f"依赖清单不存在：{a.requirements}")
+            vpkgs = parse_requirements_verbose(path)
+            pkgs, source = [n for n, _ in vpkgs], "PyPI"
+            specs = {n.lower(): s for n, s in vpkgs}
+        elif a.pyproject:
+            path = Path(a.pyproject)
+            if not path.exists():
+                ap.error(f"依赖清单不存在：{a.pyproject}")
+            vpkgs = parse_pyproject_verbose(path)
+            pkgs, source = [n for n, _ in vpkgs], "PyPI"
+            specs = {n.lower(): s for n, s in vpkgs}
+        elif a.package_json:
+            path = Path(a.package_json)
+            if not path.exists():
+                ap.error(f"依赖清单不存在：{a.package_json}")
+            vpkgs = parse_package_json_verbose(path)
+            pkgs, source = [n for n, _ in vpkgs], "npm"
+            specs = {n.lower(): s for n, s in vpkgs}
+        elif a.packages:
+            pkgs, source = a.packages, "PyPI"
+        else:
+            ap.error("需要 --requirements / --pyproject / --package-json / --packages 之一")
+    except SystemExit:
+        raise
+    except json.JSONDecodeError as e:
+        ap.error(f"依赖清单不是合法的 JSON（第 {e.lineno} 行第 {e.colno} 列）：{e.msg}")
+    except Exception as e:
+        ap.error(f"解析依赖清单失败：{type(e).__name__}: {e}")
 
-    print(f"[1/4] 解析依赖清单：{len(pkgs)} 个直接依赖（来源 {source}）")
+    if not pkgs:
+        print(f"[1/4] 解析依赖清单：0 个直接依赖（来源 {source}）")
+        print("     清单里没有可解析的依赖项，将生成一份空清单报告。")
+    else:
+        print(f"[1/4] 解析依赖清单：{len(pkgs)} 个直接依赖（来源 {source}）")
+
     locked = sum(1 for s in specs.values() if _exact_version(s))
     if locked:
         print(f"     其中 {locked} 个依赖为精确锁定版本，将按锁定版本查询许可证元数据")
@@ -996,6 +1287,17 @@ def main():
     hi = sum(1 for f in findings if f["level"] == "高")
     print(f"[4/4] 检出风险项：{len(findings)} 条（高 {hi} / 中 {len(findings)-hi}）")
 
+    # v0.4：把"未识别"拆开说清楚。97.8% 这种单一数字既惩罚了工具无能，
+    # 也惩罚了源站没数据；拆开之后才知道该补知识库还是该去人工核对。
+    ub = unknown_breakdown(records)
+    if sum(ub.values()):
+        print("     未识别项归因：" + "，".join(
+            f"{UNKNOWN_KIND_CN[k]} {v}" for k, v in
+            sorted(ub.items(), key=lambda x: -x[1]) if v))
+        print(f"     · 应由工具改进的（知识库未收录）：{ub['UNSUPPORTED_LICENSE']} 条")
+        print(f"     · 剔除源站无数据后的识别率：{effective_resolve_rate(records)}%"
+              f"（原始 {round(100.0 * (len(records) - sum(ub.values())) / len(records), 1) if records else 0.0}%）")
+
     md = ["# 《开源及第三方资源使用清单》（自动生成）", "",
           f"**项目名称**：{a.project_name}　**项目自身许可证**：{a.project_license}　"
           f"**扫描依赖数**：{len(records)}　**工具版本**：v{VERSION}", "",
@@ -1008,6 +1310,36 @@ def main():
             md.append(f"| {f['level']} | {f['pkg']} | {f['license']} | {f['reason']} | {f['advice']} |")
     else:
         md.append("未检出许可证兼容性风险。")
+
+    # 未识别项归因：让"识别率"这个数字可解释
+    if sum(ub.values()):
+        md += ["", "## 一·补、未识别项归因", "",
+               "| 归因 | 数量 | 是否属于工具的问题 | 处理方式 |",
+               "|---|---|---|---|"]
+        _tool_fault = {"UNSUPPORTED_LICENSE": "是", "NOT_IN_REGISTRY": "否",
+                       "NO_METADATA": "否", "FETCH_FAILED": "否（重跑即可）"}
+        for k, v in sorted(ub.items(), key=lambda x: -x[1]):
+            if v:
+                md.append(f"| {UNKNOWN_KIND_CN.get(k, k)} | {v} | "
+                          f"{_tool_fault.get(k, '—')} | {UNKNOWN_KIND_ADVICE.get(k, '')} |")
+        resolved = len(records) - sum(ub.values())
+        raw_rate = round(100.0 * resolved / len(records), 1) if records else 0.0
+        md += ["", f"> 原始识别率 **{raw_rate}%**（{resolved}/{len(records)}）；"
+                   f"剔除「源站客观无数据」后为 **{effective_resolve_rate(records)}%**。"
+                   "其中只有「知识库未收录」一类属于工具自身的不足，"
+                   "补进 SPDX_PATTERNS / LICENSE_DB 即可降低。", ""]
+
+    # 非 OSI / 带附加限制的许可：识别出来还不够，得说清商业后果
+    _notes = [(r["name"], r["spdx"], commercial_note(r["spdx"]))
+              for r in records if commercial_note(r["spdx"])]
+    if _notes:
+        md += ["", "## 一·再补、非 OSI / 带附加限制的许可", "",
+               "| 资源 | 许可证 | 需要注意 |", "|---|---|---|"]
+        for n, s, t in _notes:
+            md.append(f"| {n} | {s} | {t} |")
+        md += ["", "> 这些许可已被正确识别（不再是「未识别」），但条款本身有特殊限制，"
+                   "商业使用前请逐条确认。", ""]
+
     md += ["", "## 二、资源清单", "", to_checklist_table(records), "",
            f"> 项目自身许可证：{a.project_license}　|　清单由脚本自动生成，"
            f"「识别依据」列标注了每个许可证的判定来源，可信度非「高」的项须人工复核　|　共 {len(records)} 项",
@@ -1021,6 +1353,9 @@ def main():
         json.dumps({"project": a.project_name, "project_license": a.project_license,
                     "tool_version": VERSION,
                     "records": records, "findings": findings, "stats": stats,
+                    "unknown_breakdown": ub,
+                    "effective_resolve_rate": effective_resolve_rate(records),
+                    "commercial_notes": {n: t for n, _s, t in _notes},
                     "notices": [notice] if notice else []},
                    ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"报告已写出：{a.out} / {a.out.replace('.md', '.json')}")

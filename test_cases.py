@@ -13,7 +13,7 @@ test_cases.py — license_audit 回归测试用例集
 
 import sys
 
-from license_audit import (normalize_license, normalize_single, category_of,
+from license_audit import (normalize_license, category_of,
                            resolve_license_pypi, detect_conflicts,
                            split_workspace_deps)
 
@@ -568,7 +568,7 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
       category_of("MIT OR SomeUnknownThing"), "permissive")
 
 # G35 版本号暴露（报告里要能追溯到工具版本）
-check("G35", "工具版本应为 0.3", VERSION, "0.3")
+check("G35", "工具版本应为 0.4", VERSION, "0.4")
 
 
 # ============================================================ J. monorepo 工作区内部依赖
@@ -610,6 +610,130 @@ check("J7", "混合清单应正确分离且保持原有顺序",
       (["axios", "react"], ["@lobechat/builtin-tools", "@lobechat/types"]))
 
 check("J8", "空清单不应报错", split_workspace_deps([]), ([], []))
+
+
+# ============================================================ K. 许可证知识库扩容（v0.4）
+# 来源：核对报告实测。仓库 LICENSE_DB 只收录 33 种，已造成真实漏判——
+# zope.interface(ZPL-2.1)、arize-phoenix(Elastic-2.0)、
+# todomvc-app-css(CC-BY-4.0) 的源站都给了明确许可证，工具却一律判 UNKNOWN。
+
+from license_audit import (commercial_note, classify_unknown, unknown_breakdown,
+                           effective_resolve_rate, tool_attributable_unknown,
+                           CATEGORY_RANK, UNKNOWN_KINDS)
+
+print("\nK. 许可证知识库扩容（v0.4：非 OSI / 源码可得许可与常见遗漏写法）")
+
+# K1-K10 此前一律落 UNKNOWN 的真实案例
+_K_CASES = [
+    ("K1", "ZPL-2.1", "ZPL-2.1", "permissive"),
+    ("K2", "Elastic-2.0", "Elastic-2.0", "source-available"),
+    ("K3", "CC-BY-4.0", "CC-BY-4.0", "permissive"),
+    ("K4", "CC-BY-SA-4.0", "CC-BY-SA-4.0", "strong-copyleft"),
+    ("K5", "SSPL-1.0", "SSPL-1.0", "network-copyleft"),
+    ("K6", "OFL-1.1", "OFL-1.1", "permissive"),
+    ("K7", "MS-PL", "MS-PL", "permissive"),
+    ("K8", "MS-RL", "MS-RL", "weak-copyleft"),
+    ("K9", "MPL-1.1", "MPL-1.1", "weak-copyleft"),
+    ("K10", "Unicode-DFS-2016", "Unicode-DFS-2016", "permissive"),
+]
+for cid, raw, want_spdx, want_cat in _K_CASES:
+    check(cid, f"{raw} 应被识别且类别为 {want_cat}",
+          (normalize_license(raw), category_of(normalize_license(raw))),
+          (want_spdx, want_cat))
+
+# K11-K14 同源前缀但条款相反的许可证必须区分开。
+# BSL-1.0 是 Boost Software License（宽松），BSL-1.1 是 Business Source
+# License（限制商业使用）。修复前 `BSL[- ]?1` 会把 1.1 一并判成宽松许可。
+check("K11", "BSL-1.1 应判为源码可得（Business Source License）",
+      category_of(normalize_license("BSL-1.1")), "source-available")
+check("K12", "BSL-1.0 应判为宽松（Boost Software License）",
+      category_of(normalize_license("BSL-1.0")), "permissive")
+check("K13", "BUSL-1.1 与 BSL-1.1 同义",
+      normalize_license("BUSL-1.1"), "BSL-1.1")
+check("K14", "裸写 BSL-1 仍应归到 Boost（保持 v0.3 既有行为）",
+      normalize_license("BSL-1"), "BSL-1.0")
+
+# K15-K18 非 OSI 许可识别出来之后，必须能把商业风险说出来
+check("K15", "Elastic-2.0 应给出商业限制提示",
+      "商业" in (commercial_note("Elastic-2.0") or ""), True)
+check("K16", "SSPL-1.0 应提示未获 OSI 认证",
+      "OSI" in (commercial_note("SSPL-1.0") or ""), True)
+check("K17", "MIT 这类普通宽松许可不应产生附加提示",
+      commercial_note("MIT"), None)
+check("K18", "UNKNOWN 不应产生附加提示", commercial_note("UNKNOWN"), None)
+
+# K19-K22 源码可得许可必须能触发风险检出，不能因为"已识别"就静默放过
+check("K19", "MIT 项目引入 Elastic-2.0 应报高危",
+      levels(detect_conflicts("MIT", [mk("phoenix", "Elastic-2.0")]), "phoenix"),
+      ["高"])
+check("K20", "MIT 项目引入 BSL-1.1 应报高危",
+      levels(detect_conflicts("MIT", [mk("busl", "BSL-1.1")]), "busl"), ["高"])
+check("K21", "源码可得许可的风险说明里应点出限制内容",
+      "限制" in "".join(f["reason"] for f in
+                        detect_conflicts("MIT", [mk("p", "Elastic-2.0")])), True)
+check("K22", "复合表达式中源码可得项应按最严格项判定",
+      category_of("MIT AND Elastic-2.0"), "source-available")
+
+# K23 v0.4 新增类别必须能参与排序，且 unknown 仍是最严的
+check("K23", "新增类别后 unknown 仍排在最严位置",
+      CATEGORY_RANK["unknown"] > CATEGORY_RANK["source-available"]
+      > CATEGORY_RANK["network-copyleft"], True)
+
+
+# ============================================================ L. 未识别项归因（v0.4）
+# 来源：核对报告 3.2。此前所有"没认出来"统一记为 UNKNOWN 并计入未识别，
+# 导致 97.8% 这个识别率同时惩罚了「工具无能」和「源站没数据」两种性质，
+# 既不能指导改进也不能对外解释。现在按四种性质分开统计。
+
+print("\nL. 未识别项归因（v0.4：让识别率这个数字可解释）")
+
+check("L1", "源站无此包应归因 NOT_IN_REGISTRY",
+      classify_unknown({"spdx": "UNKNOWN", "status": "NOT_FOUND",
+                        "license_raw": ""}), "NOT_IN_REGISTRY")
+check("L2", "源站有包但没填许可证应归因 NO_METADATA",
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": ""}), "NO_METADATA")
+check("L3", "源站填了但知识库不认应归因 UNSUPPORTED_LICENSE",
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": "SomeWeirdLicense 1.0"}),
+      "UNSUPPORTED_LICENSE")
+check("L4", "网络失败应归因 FETCH_FAILED（重跑即可，不是许可证问题）",
+      classify_unknown({"spdx": "UNKNOWN", "status": "FETCH_ERROR",
+                        "license_raw": ""}), "FETCH_FAILED")
+check("L5", "已识别的记录不应有归因",
+      classify_unknown({"spdx": "MIT", "status": "OK", "license_raw": "MIT"}), None)
+
+_L_RECS = [
+    {"spdx": "MIT", "status": "OK", "license_raw": "MIT"},
+    {"spdx": "UNKNOWN", "status": "NOT_FOUND", "license_raw": ""},
+    {"spdx": "UNKNOWN", "status": "OK", "license_raw": ""},
+    {"spdx": "UNKNOWN", "status": "OK", "license_raw": "ZPL-9.9"},
+]
+check("L6", "四分类计数应正确", unknown_breakdown(_L_RECS),
+      {"NOT_IN_REGISTRY": 1, "NO_METADATA": 1,
+       "UNSUPPORTED_LICENSE": 1, "FETCH_FAILED": 0})
+check("L7", "只有知识库未收录一类归因于工具自身",
+      tool_attributable_unknown(_L_RECS), 1)
+check("L8", "剔除源站无数据后的识别率应高于原始识别率",
+      effective_resolve_rate(_L_RECS) > 100.0 * 1 / 4, True)
+check("L9", "归因类别应全部有中文名与处理建议",
+      all(k in UNKNOWN_KINDS for k in unknown_breakdown(_L_RECS)), True)
+check("L10", "空记录集不应报错", unknown_breakdown([]),
+      {k: 0 for k in UNKNOWN_KINDS})
+
+# L11-L12 归因要真正影响给使用者的建议，而不只是统计数字
+_f = detect_conflicts("MIT", [{"name": "ghost", "source": "PyPI", "version": "?",
+                               "license_raw": "", "spdx": "UNKNOWN",
+                               "license_field": "无", "confidence": "无",
+                               "deps": [], "status": "NOT_FOUND"}])
+check("L11", "源站无此包的处理建议应指向核对包名，而不是泛泛的人工核对",
+      "私有包" in "".join(x["advice"] for x in _f), True)
+_f = detect_conflicts("MIT", [{"name": "weird", "source": "PyPI", "version": "1.0",
+                               "license_raw": "ZPL-9.9", "spdx": "UNKNOWN",
+                               "license_field": "license_expression",
+                               "confidence": "高", "deps": [], "status": "OK"}])
+check("L12", "知识库未收录的处理建议应指向补充知识库",
+      "知识库" in "".join(x["advice"] for x in _f), True)
 
 
 # ============================================================ 汇总

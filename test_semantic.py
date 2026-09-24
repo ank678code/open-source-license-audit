@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 from semantic_audit import (import_names, collect_evidence, validate_judgment,
-                            parse_model_json, judge_by_rules, judge_one,
-                            RuleBackend, USAGE_ENUM, BOUNDARY_ENUM)
+                            parse_model_json, judge_one,
+                            RuleBackend)
 
 VERBOSE = "-v" in sys.argv
 FIXTURE = Path(__file__).parent / "fixture_project"

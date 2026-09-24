@@ -39,12 +39,11 @@ import argparse
 import json
 import os
 import re
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from license_audit import category_of, obligations_of, LICENSE_DB, VERSION
+from license_audit import category_of, obligations_of
 
 # 允许的枚举值，用于校验模型输出是否越界
 USAGE_ENUM = [

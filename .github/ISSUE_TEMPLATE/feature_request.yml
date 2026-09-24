@@ -1,0 +1,59 @@
+name: 功能建议
+description: 提议新能力或改进既有行为
+title: "[建议] <一句话说明>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本项目刻意保持小而确定：只用标准库、零第三方依赖、结论必须能站得住。
+        提建议时请说明它解决的是**谁的什么问题**——
+        我们不能只因为"别的工具也有"就加功能。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决的问题
+      description: 请描述你实际遇到的场景，而不是直接描述你想要的方案
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你建议怎么做
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 这会改变既有判定结论吗
+      description: 如果会，使用者手上的旧报告可能失效，需要特别谨慎
+      options:
+        - 不会，纯新增
+        - 会，且我认为旧结论本来就是错的
+        - 会，需要讨论怎么平滑过渡
+        - 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deps
+    attributes:
+      label: 是否需要引入第三方依赖
+      description: 本项目要求零第三方依赖，引入依赖的提议基本不会被接受
+      options:
+        - 不需要，标准库能实现
+        - 需要（请说明理由，接受被拒绝）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 有没有真实数据支持这个需求
+      description: 例如你扫描了某个项目，发现缺了这个能力导致漏检风险
+    validations:
+      required: false

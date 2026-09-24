@@ -1,0 +1,68 @@
+name: 判定错误 / Bug 报告
+description: 工具给出了错误的许可证判定，或运行时报错
+title: "[误判] <包名>：<一句话说明>"
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。这个项目的每个用例都来自一次真实误判，你的报告很可能直接变成一条测试用例。
+        请尽量填全下面的字段——**没有源站原始值的问题我们无法复现**。
+
+  - type: input
+    id: package
+    attributes:
+      label: 涉及的依赖包
+      description: 包名，以及它的来源生态
+      placeholder: "例如：zope.interface（PyPI）"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 你执行的命令
+      placeholder: |
+        python license_audit.py --requirements requirements.txt --project-license MIT
+    validations:
+      required: true
+
+  - type: textarea
+    id: raw_value
+    attributes:
+      label: 源站给出的原始值
+      description: |
+        最关键的一项。请贴出该包在 PyPI / npm 上的 license_expression、license 字段或 classifier 原文。
+        可以这样取：curl -s https://pypi.org/pypi/<包名>/json | python -c "import json,sys; d=json.load(sys.stdin)['info']; print(repr(d.get('license_expression')), repr(d.get('license'))[:300])"
+      placeholder: "license_expression: 'ZPL-2.1'"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 工具当前输出
+      placeholder: "spdx = UNKNOWN，类别 = 未识别"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期望的输出，以及依据
+      description: 请说明为什么 —— 引用许可证条款或 SPDX 定义，而不是"我觉得"
+      placeholder: "应为 ZPL-2.1（Zope 公共许可证，OSI 认证的宽松许可）"
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      value: |
+        - 操作系统：
+        - Python 版本：
+        - 工具版本（`python -c "import license_audit; print(license_audit.VERSION)"`）：
+    validations:
+      required: true

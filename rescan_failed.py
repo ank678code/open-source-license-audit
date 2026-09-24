@@ -65,7 +65,7 @@ def find_reports(extra_dirs=()):
 
 def render_md(d):
     """按 license_audit.py 的格式重新渲染报告 Markdown。"""
-    md = [f"# 《开源及第三方资源使用清单》（自动生成）", "",
+    md = ["# 《开源及第三方资源使用清单》（自动生成）", "",
           f"**项目名称**：{d['project']}　**项目自身许可证**：{d['project_license']}　"
           f"**扫描依赖数**：{len(d['records'])}", "", "## 一、风险汇总", ""]
     findings = d["findings"]

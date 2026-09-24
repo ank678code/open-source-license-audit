@@ -1,0 +1,94 @@
+name: 补充许可证写法 / 知识库缺项
+description: 源站给了明确许可证，但工具判成「未识别」
+title: "[知识库] 补充 <许可证写法>"
+labels: ["license-db", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这是本项目**最容易上手、也最有价值**的贡献类型。
+
+        工具的识别率上限直接取决于 `LICENSE_DB` 收录了多少种许可证。
+        如果你手上的包被判成「未识别」，而源站其实明确写了许可证，
+        那就是知识库缺了这种写法——补上规则和类别即可，通常十几行。
+
+        动手前请先读 [CONTRIBUTING.md](../../CONTRIBUTING.md) 的「补充许可证写法」一节。
+
+  - type: input
+    id: spdx
+    attributes:
+      label: 标准 SPDX 标识
+      description: 如果这种写法有对应 SPDX 标识请填；不确定就写"不确定"
+      placeholder: "ZPL-2.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: writings
+    attributes:
+      label: 你在源站见到的实际写法
+      description: |
+        请列出你见过的全部变体（大小写、空格、版本号写法不同都算）。
+        不同包对同一个许可证的写法差异很大，多列几种能让规则更稳。
+      placeholder: |
+        - "ZPL-2.1"        （zope.interface, license_expression）
+        - "ZPL 2.1"        （某些包, license 字段）
+        - "Zope Public License"  （旧包）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 传染强度类别
+      options:
+        - permissive（宽松许可）
+        - weak-copyleft（弱传染，如 MPL / LGPL / EPL）
+        - strong-copyleft（强传染，如 GPL / EUPL）
+        - network-copyleft（网络传染，如 AGPL / SSPL）
+        - source-available（源码可得但有商业限制，如 Elastic-2.0 / BSL-1.1）
+        - 不确定，希望讨论
+    validations:
+      required: true
+
+  - type: dropdown
+    id: osi
+    attributes:
+      label: 是否 OSI 认证
+      options:
+        - 是，OSI 认证
+        - 否，非 OSI 认证（如 Elastic-2.0、SSPL、CC 系列）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: obligation
+    attributes:
+      label: 关键许可义务 / 限制
+      description: |
+        一句话说清使用者必须做什么，或这个许可有什么坑。
+        非 OSI 许可请特别说明商业使用上的限制。
+      placeholder: "保留版权与许可声明；修改需在文件头注明变更"
+    validations:
+      required: true
+
+  - type: textarea
+    id: cases
+    attributes:
+      label: 哪些包会遇到
+      placeholder: |
+        - zope.interface（PyPI）
+        - 我自己的项目里的 xxx
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: ready
+    attributes:
+      label: 你是否愿意直接提 PR
+      options:
+        - label: 我愿意自己提 PR（会在 test_cases.py 的 K 组补上测试用例）
+          required: false
+        - label: 我只报问题，交给维护者处理
+          required: false

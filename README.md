@@ -64,6 +64,22 @@
 
 **整体识别率 97.8%，高可信度判定占比 89.2%，检出风险项 37 条（高危 10 条），26 个项目里 16 个含传染性依赖。**
 
+#### 识别率这个数字怎么读
+
+97.8% 是一个**混合口径**——它把"没认出来"的原因混在一起统计了，而那些原因性质完全不同：
+
+| 归因 | 含义 | 算不算工具的问题 |
+|---|---|---|
+| 源站未填许可证 | PyPI / npm 上这个包压根没有许可证字段（如 `azure-identity`） | 不算，源站就没有 |
+| 源站无此包 | 私有包、已下架、或需手动下载的模型包（如 spaCy 的 `en-core-web-sm`） | 不算，判定正确 |
+| 知识库未收录 | 源站写了 `ZPL-2.1`，工具的知识库不认 | **算，补进 `LICENSE_DB` 就能降** |
+| 网络获取失败 | 并发抓取超时（弱网环境常见） | 不算，重跑即可 |
+
+所以报告里同时给出两个数字：**原始识别率**（97.8%）与
+**剔除源站客观无数据后的识别率**（`effective_resolve_rate`）。
+只有「知识库未收录」一类归因于工具自身——这也是唯一值得投入改进的方向。
+详见 [`CHANGELOG.md`](CHANGELOG.md) 的 0.4.0 条目。
+
 ### 样本怎么选的
 
 不是随便挑的，每个项目加入前都实测过能否解析出依赖清单——拿不到清单的项目
@@ -81,11 +97,14 @@
 
 它们被当成第三方依赖去查，查不到就记"未识别"、还判成风险项。归因是错的：
 不是工具认不出许可证，而是它压根不是第三方依赖。
-现已按 `workspace:` 标记识别并排除（本次共排除 **108 个**），
-lobe-chat 识别率回到 100%、误报归零。
+现已按 `workspace:` 标记识别并排除，lobe-chat 识别率回到 100%、误报归零。
 
 **判定只依据 `workspace:` 标记，不靠包名猜测**——`@scope/xxx` 里既有内部包
 也有真实发布的第三方包（`@vercel/og`、`@anthropic-ai/sdk`），按名字猜必然出错。
+
+26 个项目累计排除 **108 个**工作区内部包（lobe-chat 91、next.js 15、n8n 2），
+其余项目不含 `workspace:` 依赖。该数字在 `scan_summary.json` 的
+`workspace_excluded` 字段里逐项目可查。
 
 ### 复现
 
@@ -97,6 +116,16 @@ python scan_projects.py --offline     # 复用快照重算，约 2 分钟，不�
 - 只依赖 Python 标准库直连 GitHub REST API，**不需要任何本地连接器脚本或第三方库**
 - 可选：设置 `GITHUB_TOKEN` 环境变量提升配额（匿名接口 60 次/小时，26 个项目约需 300 次请求，会限流）
 - 结果写入 `scan_summary.md` / `scan_summary.json`，逐项目报告在 `scan/` 下
+
+**结论可独立验证**——不轻信脚本自己的输出，而是重新抓源站元数据对照：
+
+```bash
+python verify_sample.py               # 分层随机抽样 40 条，回查 PyPI / npm 原始值
+python verify_sample.py --n 100 --seed 42
+```
+
+抽查结果见 [`verify_sample.md`](verify_sample.md)：40 条样本中 6 条经查源站确实无此包
+（工具标"未识别"正确），其余 34 条判定与源站元数据**逐条一致**。
 
 ## 架构
 
@@ -205,13 +234,33 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 146 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表 + workspace 识别
+python test_cases.py      # 190 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
+                          #            + workspace 识别 + 知识库扩容(K) + 未识别归因(L)
+                          #            + 跨 Python 版本一致性(M)
 python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 **233 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+共 **277 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
 包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
-`contest/` 被当成测试目录等。
+`contest/` 被当成测试目录、`BSL-1.1` 被 Boost 规则抢先匹配成宽松许可等。
+
+## 许可证知识库
+
+当前收录 **53 种**许可证标识（v0.4 起），覆盖五类传染强度：
+
+| 类别 | 说明 | 举例 |
+|---|---|---|
+| 宽松许可 | 保留声明即可 | MIT、Apache-2.0、BSD-3-Clause、ZPL-2.1、MulanPSL-2.0 |
+| 弱传染 | 文件级 / 模块级隔离 | MPL-2.0、EPL-2.0、LGPL-3.0-only |
+| 强传染 | 衍生作品需整体开放 | GPL-3.0-only、EUPL-1.2、CC-BY-SA-4.0 |
+| 网络传染 | 对外提供服务即触发 | AGPL-3.0-only、SSPL-1.0 |
+| 源码可得（非 OSI） | 能拿到源码，但限制商业使用 | Elastic-2.0、BSL-1.1 |
+
+**非 OSI 许可会被显式点出商业风险**，而不是笼统标成"待确认"。例如 `Elastic-2.0`：
+工具会告诉你「禁止将本软件作为托管服务对外提供」——这才是使用者真正需要知道的事。
+
+发现漏判欢迎提交 [知识库缺项 Issue](https://github.com/ank678code/open-source-license-audit/issues/new?template=license-db.yml)，
+这是本项目最容易上手也最有价值的贡献。
 
 ## 已知限制
 
@@ -224,10 +273,21 @@ python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 
 
 ## 贡献
 
-欢迎提交 Issue 和 PR，特别是：
+完整指南见 [CONTRIBUTING.md](CONTRIBUTING.md)。几条底线：
+
+- **零第三方依赖**，只用 Python 标准库，Python 3.8+ 必须能跑
+- **每个改动都要有真实依据**——请说明你在哪个包、哪个源站字段上遇到了什么值
+- **判定逻辑的改动必须带测试用例**，不接受无用例的改动
+- **不臆断**：拿不到证据时输出「待确认」，而不是编一个看起来合理的结论
+
+最欢迎的四类贡献：
+
+- 补充 [许可证写法 / 知识库缺项](https://github.com/ank678code/open-source-license-audit/issues/new?template=license-db.yml)
+- 报告 [判定错误](https://github.com/ank678code/open-source-license-audit/issues/new?template=bug_report.yml)
 - 补充 `IMPORT_ALIASES` 里的包名映射
-- 补充新的许可证写法模式（附上你遇到的实际值）
-- 新增测试用例
+- [功能建议](https://github.com/ank678code/open-source-license-audit/issues/new?template=feature_request.yml)
+
+参与即视为同意[行为准则](.github/CODE_OF_CONDUCT.md)。
 
 ## 许可证
 

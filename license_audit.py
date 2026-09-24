@@ -139,6 +139,10 @@ SPDX_PATTERNS = [
     (r"^EPL[- ]?v?[- ]?2", "EPL-2.0"),
     (r"Eclipse Public", "EPL-2.0"),
     (r"^0BSD$", "0BSD"),
+    # v0.4 增补：实测 Bottleneck 的 license 字段只写 "Simplified BSD"，
+    # 按生态里的通行用法即 BSD-2-Clause；FreeBSD 同为 2-Clause。
+    (r"^Simplified BSD", "BSD-2-Clause"),
+    (r"^FreeBSD", "BSD-2-Clause"),
     (r"^BSD[- ]?3", "BSD-3-Clause"),
     (r"^BSD[- ]?2", "BSD-2-Clause"),
     (r"^BSD[- ]?(License|$)", "BSD-3-Clause"),
@@ -342,6 +346,27 @@ UNKNOWN_KIND_ADVICE = {
 }
 
 
+# 源站偶尔会把"许可证所在的文件名"或纯占位词直接填进 license 字段。
+# 实测 rouge 的字段值就是字面量 "LICENCE.txt"。
+# 这不是"工具知识库没收录该写法"，而是"源站压根没给许可证信息"——
+# 若归到 UNSUPPORTED_LICENSE，就把源站的问题算到工具头上，
+# 让"应由工具改进"这个指标虚高，反而失去指导意义。
+_PLACEHOLDER_RE = re.compile(
+    r"^(?:see\s+licen[cs]e|licen[cs]e(?:[-_ ]?file)?(?:\.(?:txt|md|rst|html?))?"
+    r"|copying(?:\.txt)?|unknown|none|null|unlicensed|todo|n/a|—|-|\?+)$",
+    re.IGNORECASE)
+
+
+def is_placeholder_license(value):
+    """该值是否只是占位/指向文件，而不含任何许可证信息。"""
+    s = (value or "").strip()
+    if not s:
+        return True
+    if len(s) > 60:               # 长文本里可能藏着真许可证正文，不视为占位
+        return False
+    return bool(_PLACEHOLDER_RE.match(s))
+
+
 def classify_unknown(rec):
     """对一条 spdx == UNKNOWN 的记录做性质归类；已识别的记录返回 None。
 
@@ -350,17 +375,17 @@ def classify_unknown(rec):
     """
     if not rec or rec.get("spdx") != "UNKNOWN":
         return None
-    kind = rec.get("unknown_kind")
-    if kind in UNKNOWN_KINDS:
-        return kind
-    # 兼容：记录里没有 unknown_kind 字段时（例如旧快照或手工构造的用例）按现状反推
     st = rec.get("status")
     if st == "NOT_FOUND":
         return "NOT_IN_REGISTRY"
     if st == "FETCH_ERROR":
         return "FETCH_FAILED"
-    if not (rec.get("license_raw") or "").strip():
+    # 空值与占位值同属"源站没给数据"，都在工具能力之外
+    if is_placeholder_license(rec.get("license_raw")):
         return "NO_METADATA"
+    kind = rec.get("unknown_kind")
+    if kind in UNKNOWN_KINDS:
+        return kind
     return "UNSUPPORTED_LICENSE"
 
 
@@ -1377,6 +1402,81 @@ def to_checklist_table(records, judgments=None):
     return "\n".join(lines)
 
 
+def render_report(project_name, project_license, records, findings, locked=0):
+    """把审计结果渲染成 (Markdown 文本, JSON 可序列化字典)。
+
+    从 main() 里抽出来的纯函数，不读不写文件、不依赖命令行参数——
+    这样"重算历史扫描数据"这类离线场景可以复用同一套渲染逻辑，
+    产出的报告与重新跑一遍工具完全一致，不会因为两处模板各写一遍而对不上。
+    """
+    notice = matrix_notice(project_license)
+    stats = {}
+    for r in records:
+        c = category_of(r["spdx"])
+        stats[c] = stats.get(c, 0) + 1
+    ub = unknown_breakdown(records)
+    _notes = [(r["name"], r["spdx"], commercial_note(r["spdx"]))
+              for r in records if commercial_note(r["spdx"])]
+
+    md = ["# 《开源及第三方资源使用清单》（自动生成）", "",
+          f"**项目名称**：{project_name}　**项目自身许可证**：{project_license}　"
+          f"**扫描依赖数**：{len(records)}　**工具版本**：v{VERSION}", "",
+          "## 一、风险汇总", ""]
+    if notice:
+        md += [f"> ⚠ {notice}", ""]
+    if findings:
+        md += ["| 级别 | 资源 | 检出许可证 | 风险说明 | 处理建议 |", "|---|---|---|---|---|"]
+        for f in sorted(findings, key=lambda x: 0 if x["level"] == "高" else 1):
+            md.append(f"| {f['level']} | {f['pkg']} | {f['license']} | {f['reason']} | {f['advice']} |")
+    else:
+        md.append("未检出许可证兼容性风险。")
+
+    # 未识别项归因：让"识别率"这个数字可解释
+    if sum(ub.values()):
+        md += ["", "## 一·补、未识别项归因", "",
+               "| 归因 | 数量 | 是否属于工具的问题 | 处理方式 |",
+               "|---|---|---|---|"]
+        _tool_fault = {"UNSUPPORTED_LICENSE": "是", "NOT_IN_REGISTRY": "否",
+                       "NO_METADATA": "否", "FETCH_FAILED": "否（重跑即可）"}
+        for k, v in sorted(ub.items(), key=lambda x: -x[1]):
+            if v:
+                md.append(f"| {UNKNOWN_KIND_CN.get(k, k)} | {v} | "
+                          f"{_tool_fault.get(k, '—')} | {UNKNOWN_KIND_ADVICE.get(k, '')} |")
+        resolved = len(records) - sum(ub.values())
+        raw_rate = round(100.0 * resolved / len(records), 1) if records else 0.0
+        md += ["", f"> 原始识别率 **{raw_rate}%**（{resolved}/{len(records)}）；"
+                   f"剔除「源站客观无数据」后为 **{effective_resolve_rate(records)}%**。"
+                   "其中只有「知识库未收录」一类属于工具自身的不足，"
+                   "补进 SPDX_PATTERNS / LICENSE_DB 即可降低。", ""]
+
+    # 非 OSI / 带附加限制的许可：识别出来还不够，得说清商业后果
+    if _notes:
+        md += ["", "## 一·再补、非 OSI / 带附加限制的许可", "",
+               "| 资源 | 许可证 | 需要注意 |", "|---|---|---|"]
+        for n, s, t in _notes:
+            md.append(f"| {n} | {s} | {t} |")
+        md += ["", "> 这些许可已被正确识别（不再是「未识别」），但条款本身有特殊限制，"
+                   "商业使用前请逐条确认。", ""]
+
+    md += ["", "## 二、资源清单", "", to_checklist_table(records), "",
+           f"> 项目自身许可证：{project_license}　|　清单由脚本自动生成，"
+           f"「识别依据」列标注了每个许可证的判定来源，可信度非「高」的项须人工复核　|　共 {len(records)} 项",
+           "> 「使用方式」「自主开发边界」两列需要源码证据，本报告未采集，"
+           "统一标注为「待确认」；运行 semantic_audit.py 可补齐这两列"]
+    if locked:
+        md.append(f"> 版本说明：{locked} 个依赖按清单锁定的精确版本查询许可证（见 JSON 的 requested_version 字段）；"
+                  "其余为范围约束，按最新版查询，历史版本许可可能与最新版不同，请定期重跑核对")
+
+    report = {"project": project_name, "project_license": project_license,
+              "tool_version": VERSION,
+              "records": records, "findings": findings, "stats": stats,
+              "unknown_breakdown": ub,
+              "effective_resolve_rate": effective_resolve_rate(records),
+              "commercial_notes": {n: t for n, _s, t in _notes},
+              "notices": [notice] if notice else []}
+    return "\n".join(md), report
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--requirements")
@@ -1468,66 +1568,11 @@ def main():
         print(f"     · 剔除源站无数据后的识别率：{effective_resolve_rate(records)}%"
               f"（原始 {round(100.0 * (len(records) - sum(ub.values())) / len(records), 1) if records else 0.0}%）")
 
-    md = ["# 《开源及第三方资源使用清单》（自动生成）", "",
-          f"**项目名称**：{a.project_name}　**项目自身许可证**：{a.project_license}　"
-          f"**扫描依赖数**：{len(records)}　**工具版本**：v{VERSION}", "",
-          "## 一、风险汇总", ""]
-    if notice:
-        md += [f"> ⚠ {notice}", ""]
-    if findings:
-        md += ["| 级别 | 资源 | 检出许可证 | 风险说明 | 处理建议 |", "|---|---|---|---|---|"]
-        for f in sorted(findings, key=lambda x: 0 if x["level"] == "高" else 1):
-            md.append(f"| {f['level']} | {f['pkg']} | {f['license']} | {f['reason']} | {f['advice']} |")
-    else:
-        md.append("未检出许可证兼容性风险。")
-
-    # 未识别项归因：让"识别率"这个数字可解释
-    if sum(ub.values()):
-        md += ["", "## 一·补、未识别项归因", "",
-               "| 归因 | 数量 | 是否属于工具的问题 | 处理方式 |",
-               "|---|---|---|---|"]
-        _tool_fault = {"UNSUPPORTED_LICENSE": "是", "NOT_IN_REGISTRY": "否",
-                       "NO_METADATA": "否", "FETCH_FAILED": "否（重跑即可）"}
-        for k, v in sorted(ub.items(), key=lambda x: -x[1]):
-            if v:
-                md.append(f"| {UNKNOWN_KIND_CN.get(k, k)} | {v} | "
-                          f"{_tool_fault.get(k, '—')} | {UNKNOWN_KIND_ADVICE.get(k, '')} |")
-        resolved = len(records) - sum(ub.values())
-        raw_rate = round(100.0 * resolved / len(records), 1) if records else 0.0
-        md += ["", f"> 原始识别率 **{raw_rate}%**（{resolved}/{len(records)}）；"
-                   f"剔除「源站客观无数据」后为 **{effective_resolve_rate(records)}%**。"
-                   "其中只有「知识库未收录」一类属于工具自身的不足，"
-                   "补进 SPDX_PATTERNS / LICENSE_DB 即可降低。", ""]
-
-    # 非 OSI / 带附加限制的许可：识别出来还不够，得说清商业后果
-    _notes = [(r["name"], r["spdx"], commercial_note(r["spdx"]))
-              for r in records if commercial_note(r["spdx"])]
-    if _notes:
-        md += ["", "## 一·再补、非 OSI / 带附加限制的许可", "",
-               "| 资源 | 许可证 | 需要注意 |", "|---|---|---|"]
-        for n, s, t in _notes:
-            md.append(f"| {n} | {s} | {t} |")
-        md += ["", "> 这些许可已被正确识别（不再是「未识别」），但条款本身有特殊限制，"
-                   "商业使用前请逐条确认。", ""]
-
-    md += ["", "## 二、资源清单", "", to_checklist_table(records), "",
-           f"> 项目自身许可证：{a.project_license}　|　清单由脚本自动生成，"
-           f"「识别依据」列标注了每个许可证的判定来源，可信度非「高」的项须人工复核　|　共 {len(records)} 项",
-           "> 「使用方式」「自主开发边界」两列需要源码证据，本报告未采集，"
-           "统一标注为「待确认」；运行 semantic_audit.py 可补齐这两列"]
-    if locked:
-        md.append(f"> 版本说明：{locked} 个依赖按清单锁定的精确版本查询许可证（见 JSON 的 requested_version 字段）；"
-                  "其余为范围约束，按最新版查询，历史版本许可可能与最新版不同，请定期重跑核对")
-    Path(a.out).write_text("\n".join(md), encoding="utf-8")
+    md_text, report = render_report(a.project_name, a.project_license,
+                                    records, findings, locked)
+    Path(a.out).write_text(md_text, encoding="utf-8")
     Path(a.out.replace(".md", ".json")).write_text(
-        json.dumps({"project": a.project_name, "project_license": a.project_license,
-                    "tool_version": VERSION,
-                    "records": records, "findings": findings, "stats": stats,
-                    "unknown_breakdown": ub,
-                    "effective_resolve_rate": effective_resolve_rate(records),
-                    "commercial_notes": {n: t for n, _s, t in _notes},
-                    "notices": [notice] if notice else []},
-                   ensure_ascii=False, indent=1), encoding="utf-8")
+        json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"报告已写出：{a.out} / {a.out.replace('.md', '.json')}")
 
 

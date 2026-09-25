@@ -580,7 +580,12 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
 # G35 版本号暴露（报告里要能追溯到工具版本）
 # v0.4.1：与 pyproject.toml 的 version 统一——此前代码写 "0.4"、
 # pyproject 写 "0.3.0"、CHANGELOG 写 "0.4.0"，三处互不相同（审查报告 L1）。
-check("G35", "工具版本应为 0.4.2", VERSION, "0.4.2")
+# v0.4.3：改为只校验格式，不再硬编码具体版本——否则每次发版都得回来改测试，
+# 等于把"文档数字漂移"换个地方重演。跨文件一致性由 N22（与 pyproject.toml
+# 一致）和 check_docs_consistency.py（与 CHANGELOG / scan_summary 一致）负责。
+_G35_PARTS = VERSION.split(".")
+check("G35", "工具版本应为三段式语义化版本号",
+      len(_G35_PARTS) == 3 and all(p.isdigit() for p in _G35_PARTS), True)
 
 
 # ============================================================ J. monorepo 工作区内部依赖
@@ -1264,6 +1269,108 @@ for _f in sorted((_Path(__file__).parent).glob("*.py")) + \
             _O_AHEAD.append(f"{_f.name}:v{_m.group(1)}")
 check("O26", "源码与打包配置里不得出现高于 VERSION 的变更标注",
       sorted(set(_O_AHEAD)), [])
+
+
+# ============================================================ P. 抽查脚本抓取状态区分（v0.4.2 补充）
+# 来源：本机对 pypi.org 间歇可达。实测同一批抽样里 `tqdm` 两次取到
+#   `MPL-2.0 AND MIT`、另三次却报"源站无此包"；`Jinja2` / `MarkupSafe`
+#   等 PyPI 上的常见包同样被报成不存在——单独 curl 得到的是连接失败 000，
+#   根本不是 404。根因是 `upstream_values` 用 `except Exception: return None`
+#   把所有异常吞平，调用方再把 None 读作"源站无此包"：网络抖动被说成源站的
+#   问题，而且每次运行结果都不同——**不可复现的数字比没有数字更糟**。
+# 主程序 `license_audit.py` 早已用 `status` 区分 NOT_FOUND / FETCH_ERROR，
+# 这里守护抽查脚本对齐同一套语义：三态必须分得开。
+
+import urllib.error as _ue
+from unittest.mock import patch as _patch
+from verify_sample import (_fetch_json, upstream_values, is_unknown,
+                           stratify)
+
+print("\nP. 抽查脚本抓取状态区分（源站无此包 / 网络失败 / 成功）")
+
+
+class _PResp:
+    """urlopen 响应替身，够 _fetch_json 用即可。"""
+
+    def __init__(self, body):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _p_fetch(exc=None, body=b'{"info": {}}'):
+    def _fake(req, timeout=None):
+        if exc is not None:
+            raise exc
+        return _PResp(body)
+    with _patch("urllib.request.urlopen", _fake):
+        return _fetch_json("https://example.invalid/x")
+
+
+# P1 只有 404 才能下"源站无此包"这个结论
+check("P1", "HTTP 404 应判为 not_found（包确实不存在）",
+      _p_fetch(_ue.HTTPError("u", 404, "Not Found", {}, None))[0], "not_found")
+
+# P2-P4 网络类失败一律 fetch_failed，绝不能混进 not_found
+check("P2", "连接失败应判为 fetch_failed，不得当作源站无此包",
+      _p_fetch(_ue.URLError("connection reset by peer"))[0], "fetch_failed")
+check("P3", "读取超时应判为 fetch_failed",
+      _p_fetch(TimeoutError("timed out"))[0], "fetch_failed")
+check("P4", "HTTP 429 限流应判为 fetch_failed（重跑即可，不是包不存在）",
+      _p_fetch(_ue.HTTPError("u", 429, "Too Many Requests", {}, None))[0],
+      "fetch_failed")
+
+# P5 正常响应仍要能解出 payload——修不能把好路走坏
+check("P5", "正常响应应判为 ok 并解出 JSON",
+      _p_fetch(body=b'{"info": {"license": "MIT"}}'),
+      ("ok", {"info": {"license": "MIT"}}))
+
+# P6 状态必须透传到调用方，不能中途被压成"空值"
+with _patch("verify_sample.fetch_pypi", lambda n, v=None: ("fetch_failed", None)):
+    _P6 = upstream_values({"name": "Jinja2", "source": "PyPI",
+                           "version": None, "spdx": "BSD-3-Clause"})
+check("P6", "抓取失败时 upstream_values 应原样透传 fetch_failed",
+      _P6, ("fetch_failed", None))
+
+# P7 源码守护：不得再退回"所有异常一律返回 None"的写法
+_P7_SRC = (_Path(__file__).with_name("verify_sample.py")).read_text(
+    encoding="utf-8", errors="replace")
+check("P7", "verify_sample.py 不应再有把所有异常吞成 None 的分支",
+      "except Exception:\n        return None" in _P7_SRC, False)
+
+# P8-P10 分层抽样必须真的能抽到「未识别」层
+# 未识别的值是**字符串** "UNKNOWN" 而非空值——实测库里 spdx 为 None 的有 0 条、
+# spdx == "UNKNOWN" 的有 19 条。只判 falsy 会让"未识别层"永远抽到 0 条，
+# 而它恰恰是抽查最该审视的一层：工具说"认不出来"，是否真的认不出来。
+check("P8", 'spdx == "UNKNOWN"（字符串）应判为未识别',
+      is_unknown({"spdx": "UNKNOWN"}), True)
+check("P8b", "空串与 None 也应判为未识别",
+      [is_unknown({"spdx": v}) for v in ("", None)], [True, True])
+check("P8c", "已识别的许可证不应被判为未识别",
+      [is_unknown({"spdx": v}) for v in ("MIT", "GPL-3.0-only")], [False, False])
+
+_P9_ROWS = ([("p%d" % i, {"name": "ok%d" % i, "spdx": "MIT"})
+             for i in range(30)]
+            + [("c%d" % i, {"name": "copyleft%d" % i, "spdx": "GPL-3.0-only"})
+               for i in range(30)]
+            + [("u%d" % i, {"name": "unk%d" % i, "spdx": "UNKNOWN"})
+               for i in range(30)])
+_P9 = stratify(_P9_ROWS, 30, 20260924)
+check("P9", "分层抽样必须抽到未识别项（修复前该层恒为 0 条）",
+      sum(1 for _p, r in _P9 if r["spdx"] == "UNKNOWN"), 10)
+
+# 抽全量时，UNKNOWN 记录只应来自未识别层一次——若已识别层也放行，
+# 这里会数出两倍，正是修复前的行为
+_P10 = [r for _p, r in stratify(_P9_ROWS, 300, 1) if is_unknown(r)]
+check("P10", "未识别记录只应计入未识别层一次（不得被已识别层重复纳入）",
+      len(_P10), 30)
 
 
 # ============================================================ 汇总

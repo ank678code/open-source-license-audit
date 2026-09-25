@@ -430,8 +430,17 @@ README 的实测数据表同理。
 
 **修复**：用当前判定逻辑重算全部 26 个项目的历史扫描数据并刷新
 `scan_summary.json` / `scan_summary.md` 与 README 的实测数据段。
-重算方式见 `recompute_scan.py`（离线复用已落盘的 `license_raw`，
-不依赖网络；本机 pypi.org 不可达）。重算后各项数字自洽。
+重算方式见仓库内的 `recompute_scan.py`（离线复用已落盘的 `license_raw`，
+不依赖网络；本机 pypi.org 不可达）：
+
+```bash
+python recompute_scan.py --data <含 scan/ 与 scan_summary.json 的目录>
+# 只对比不写回：加 --dry-run
+```
+
+该脚本在 v0.4.1 交付时**只存在于开发机上、没有入库**，导致本节指引无法执行
+（第三方检查清单 P2-4）；v0.4.2 已把它通用化后补进仓库，并纳入打包配置。
+重算后各项数字自洽。
 
 顺带修掉一处**举例过时**：README 归因表里举的「源站未填许可证」例子是
 `azure-identity`，而它已被正确识别为 MIT；「知识库未收录」举的是 `ZPL-2.1`，
@@ -469,7 +478,8 @@ B9 用例按新契约重写，并新增 B9b/B9c 断言「信息不能丢」。
 基础路径，于是 `-r /etc/passwd` 可读到解压目录外的任意文件，
 解析出的「包名」再回显给客户端。
 
-**修复**：新增 `_within()` 围栏，用 `resolve()` 后的路径判定是否落在解压目录内
+**修复**：新增路径围栏（当时叫 `_within()`，v0.4.2 更名为 `path_within()`
+并提到 `license_audit`，供 CLI 跟随 `-r` 引用时共用），用 `resolve()` 后的路径判定是否落在解压目录内
 （`..` 与符号链接一并覆盖）；绝对路径、`~`、盘符相对路径（`C:foo`）直接忽略；
 并要求目标是普通文件。
 
@@ -544,3 +554,128 @@ B9 用例按新契约重写，并新增 B9b/B9c 断言「信息不能丢」。
 | 扫描数据 | 26 项目 / 1143 依赖 / 识别率 98.3% / 高可信 89.5% / 风险 30（高危 10） |
 | 有效识别率（剔除源站无客观数据） | 99.9%（仅 1 条归因于工具） |
 | 既有用例 | B9 按新契约重写，其余未修改即通过 |
+
+---
+
+## 十三、第五轮：按第三方检查清单逐项修复（v0.4.2）
+
+**来源**：`open-source-license-audit 仓库问题检查清单.docx`（审查对象为 v0.4.1 的 main）。
+清单列出 11 项（高 2 / 中 4 / 低 5）。以下逐条**先复现、再修**——本轮的 11 项
+全部复现成立，没有"清单说错了"的情况，因此全部修掉，并各补了回归用例。
+
+### 13.1 P1-1 CLI 与 Web 入口未排除 monorepo 工作区内部包
+
+**复现**：构造 `{"dependencies":{"express":"^4.18.0","@myorg/internal-tool":"workspace:*"}}`，
+`parse_package_json_verbose()` 返回两条；`split_workspace_deps()` 能正确拆出
+内部包，但**只有 `scan_projects.py` 调用它**——CLI 的 `--package-json` 分支与
+`web/server.py` 的 `detect_and_parse()` 都没调用。后果是内部包被当成第三方依赖
+去查 npm，返回 404 后归因「源站无此包」并报中危，与 README「现已按 `workspace:`
+标记识别并排除」的宣称直接矛盾。
+
+**修复**：两个入口都补上排除，并**显式报出排除数量**（CLI 打印一行、Web 在
+payload 的 `stats.workspace_excluded` 里返回），避免"静默少算依赖"。
+
+**过程中踩到的一个坑**：清单建议"统一调用 `split_workspace_deps`"，但该函数返回的是
+**包名列表**，而 CLI/Web 还需要保留版本约束去做锁定版本查询——直接把返回值当成
+`(名, 约束)` 对使用会抛 `ValueError: too many values to unpack`。因此新增
+`exclude_workspace_deps()`：返回"过滤后的依赖对 + 被排除的包名"，
+内部复用 `split_workspace_deps()` 的判定，两处行为不会分叉。
+
+### 13.2 P1-2 自定义输出名不含 .md 时 JSON 报告覆盖 Markdown 报告
+
+**复现**：`--out out.txt` → 终端打印「报告已写出：out.txt / out.txt」，
+文件内容为 JSON，Markdown 正文已被覆盖。
+
+**修复**：抽出 `report_paths()`：以 `.md` 结尾才替换后缀，否则追加 `.json`，
+两条路径**必定不同**；非 `.md` 结尾时额外打印一行提示说明 JSON 另存到了哪里。
+
+### 13.3 P2-3 rescan_failed.py 重写汇总时丢失 v0.4 新增字段
+
+**复现**：该脚本的 summary 结构里没有 `unknown_breakdown` /
+`unknown_tool_fault` / `effective_resolve_rate`；项目行也没有 `ecosystem` /
+`manifest` / `workspace_excluded`。运行一次就会把 `scan_summary.json` 降级成
+旧结构，依赖这些字段的统计口径直接消失。重抓时 `fetch_pypi(r["name"])` 也没带
+`requested_version`，锁定版本的条目会被退化成"按最新版查"。
+
+**修复**：把汇总构造抽成两个纯函数 `build_row()` / `build_summary()`——
+以既有汇总里的**同项目行为基底**再更新（保留与判定无关的字段），补齐归因与
+双口径识别率；重抓时带上 `requested_version`。
+
+**验证**：在仓库副本上实跑一遍 `rescan_failed.py`（26 份报告、0 条待重试），
+汇总前后 `workspace_excluded=108`、`ecosystem` / `manifest` 等字段完整保留，
+识别率 98.3%、高可信 89.5%、风险 30 条与重扫前完全一致。
+
+### 13.4 P2-4 FIXES.md 引用不存在的文件
+
+**复现**：第十一节写「重算方式见 `recompute_scan.py`」，但仓库与发布压缩包里
+都没有该文件——脚本只存在于开发机上，指引无法执行。
+
+**修复**：把脚本通用化后**补进仓库**（`--data` / `--code` / `--dry-run`，
+默认数据目录为本脚本所在目录，不再硬编码任何开发机路径），并加入
+`py-modules` 与 `license-audit-recompute` 命令入口。第十二节的指引也已改写成
+可直接执行的命令。
+
+### 13.5 P3-1 证据采集的依赖归属使用子串匹配
+
+**复现**：`collect_evidence()` 用「包名小写是否包含于清单文本」判断，
+清单只写 `torchvision` 时查 `torch` 返回 `in_requirements=True`；
+只写 `pytest-cov` 时查 `pytest` 同样为 True。这份证据是要喂给模型做合规判断的，
+命中错会把结论带偏。
+
+**修复**：改为按清单格式**真正解析出包名**，再按 PEP 503 归一化后精确比对；
+证据里同时记录命中的清单文件名（`requirements_manifests`），便于人工复核。
+`setup.py` 不执行脚本，只做受限文本抽取（抓不到就返回空集合——宁可不给证据，
+也不要子串匹配带来的假阳性）。
+
+### 13.6 P3-2 Web 端解压缺少规模限制、非法参数返回 500
+
+**修复**：`safe_extract()` 增加解压后总大小（200MB）与条目数（2000）上限；
+新增 `manifest_ext()` 做清单类型校验，非法 `kind` 返回 **400**（此前 KeyError
+被兜底 `except` 捕获后返回 500），压缩包损坏 / 超限也归为 400。
+
+### 13.7 P3-3 抽查脚本保留不可达的宽容分支
+
+**复现**：`loose_match()` 里「工具判 UNKNOWN 直接返回 True」的分支仍存在；
+主流程已把该情形前置分流到漏判桶，分支不可达，却会让读者以为抽查口径仍然宽松。
+
+**修复**：删除该分支（改为返回 False），并在 docstring 里说明为什么不能宽容。
+
+### 13.8 P3-4 / P3-5 CLI 不跟随 -r 指针清单、各入口行为不一致
+
+**复现**：清单内容只有一行 `-r runtime.txt` 时，CLI 解析结果为 **0 个依赖**
+且不给任何提示（用户会以为项目真的没有依赖）；`web/server.py` 只跟随一层且
+取首个非空结果；`scan_projects.py` 则是递归跟随——同一份清单换个入口结果不同。
+
+**修复**：统一到 `parse_requirements_verbose()`：递归跟随、环路保护、深度上限、
+路径围栏（`path_within()`，拒绝绝对路径 / `~` / 盘符相对路径 / 越界 `..`），
+并把「跟随了哪些引用、哪些被跳过」作为提示返回给调用方打印。
+Web 端删掉自己那份"跟随一层"的实现，改为传入 `include_root` 复用同一逻辑；
+`path_within()` 也从 `web/server.py` 提到 `license_audit.py`，CLI 与 Web 共用
+一套围栏判定（此前两处各有一份，改一处就会分叉）。
+
+### 13.9 P2-1 / P2-2 文档数字与版本标注
+
+- **P2-1**：README 测试小节仍写 196 / 283（实际 224 / 311）。已按实跑结果更新，
+  并补上 N 组、O 组的说明。
+- **P2-2**：代码注释、`pyproject.toml` 注释与 `verify_sample.md` 把 v0.4.1 的修复
+  标成 `v0.5`，而 CHANGELOG 与 `pyproject.toml` 都没有 0.5。已统一为实际发布版本。
+  另新增 O26 用例守护这条规则：源码与打包配置里**不得出现高于 `VERSION` 的变更标注**
+  （只匹配 `vX.Y 修正 / vX.Y 新增 / vX.Y 起` 这类标注形态，避免把版本约束示例
+  `"v1.2.3"` 与许可证正文 `GPL v2.0` 误判）。
+
+### 13.10 本轮验证
+
+| 检查项 | 结果 |
+|---|---|
+| `python test_cases.py` | **251 / 251 通过**（新增 O 组 26 个、N21b 1 个） |
+| `python test_semantic.py` | **95 / 95 通过**（新增 J 组 8 个） |
+| 合计 | **346 个用例** |
+| `python -m pyflakes *.py web/*.py` | 零告警 |
+| CLI 端到端 | `--package-json` 排除内部包并打印排除数；`--out out.txt` 两份报告并存；`-r` 指针清单正常跟随 |
+| `rescan_failed.py` 实跑 | 汇总字段完整保留，各项指标与重扫前一致（在副本上验证，未污染仓库数据） |
+| 版本一致性 | G35（代码 `VERSION`）、N22（与 pyproject 一致）、O26（标注不得超前）三条守护同时通过 |
+
+**改动文件**：`license_audit.py`、`semantic_audit.py`、`rescan_failed.py`、
+`verify_sample.py`、`web/server.py`、`recompute_scan.py`（新增）、
+`pyproject.toml`、`README.md`、`CHANGELOG.md`、`FIXES.md`、`verify_sample.md`、
+`test_cases.py`、`test_semantic.py`

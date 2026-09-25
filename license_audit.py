@@ -47,6 +47,16 @@ v0.3 增补（并发、诚实性、可复现性）：
   · 版本约束 "v1.2.3" 前缀此前会原样去查 PyPI 导致 404 → 归一化后再查
   · 元数据抓取改为可选线程池并发（--jobs），零第三方依赖，实测扫描提速约 8—10 倍
 
+v0.4.2 修正（第三方检查清单，逐条复现后修复）：
+  · CLI 与 Web 入口此前不做 monorepo 工作区内部包排除（只有 scan_projects.py
+    做了），与 README 宣称不符；现在两个入口都调用 split_workspace_deps。
+  · --out 不含 .md 时 Markdown 报告会被 JSON 静默覆盖。
+  · CLI 不跟随 -r 指针清单，纯指针文件会静默解析成 0 个依赖。
+  · 证据采集的依赖归属用子串匹配（torch 被 torchvision 命中）。
+  · Web 端未限制解压后规模，非法清单类型回 500 而非 400。
+  · rescan_failed.py 重建汇总时丢失 v0.4 新增字段、且重抓不带锁定版本。
+  · 代码注释里出现高于发布版本的版本标注（检查清单 P2-2）。
+
 v0.4.1 修正（第三方审查报告，逐条复现后修复）：
   · 项目自身许可证未归一化就查 COMPAT_MATRIX，查不到便退化成空集合，
     导致该项目下所有传染性依赖被逐条误报为冲突。matplotlib 的
@@ -72,7 +82,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 
 
 def _force_utf8_stdio():
@@ -197,7 +207,7 @@ SPDX_PATTERNS = [
     (r"^ZPL\b|Zope Public", "ZPL-2.1"),
     (r"^Elastic[- ]?(License )?2|Elastic License", "Elastic-2.0"),
     (r"^BUSL|^(?:BUSL|BSL)[- ]?1\.1|Business Source License", "BSL-1.1"),
-    # v0.5：n8n 等项目用作自身许可证的源码可得许可，此前落 UNKNOWN，
+    # v0.4.1：n8n 等项目用作自身许可证的源码可得许可，此前落 UNKNOWN，
     # 连带使其在 COMPAT_MATRIX 中查不到，触发 H2 那类系统性误报。
     (r"^Sustainable Use", "Sustainable-Use-1.0"),
     (r"^SSPL|Server Side Public", "SSPL-1.0"),
@@ -549,7 +559,7 @@ MATRIX_NOT_COVERED_NOTICE = (
 def resolve_project_license(project_license):
     """把项目自身许可证归一到矩阵可查的规范标识；归一不到（矩阵未覆盖）返回 None。
 
-    v0.5 修正（审查报告 H2「兼容矩阵未覆盖引发系统性误报」）：
+    v0.4.1 修正（审查报告 H2「兼容矩阵未覆盖引发系统性误报」）：
     此前直接用原始写法查 COMPAT_MATRIX。项目许可证往往写的是上游自称的
     非规范写法——matplotlib 的 pyproject 里写的就是 "PSF-based"，
     n8n 写的是 "Sustainable Use License"。这类写法查不到 → `get(..., set())`
@@ -937,14 +947,98 @@ def fetch_npm(name, version=None):
 
 # ---------------------------------------------------------------- 清单解析
 
-def parse_requirements_verbose(path: Path):
-    """解析 requirements.txt，返回 [(包名, 版本约束), ...]，保留版本信息。
+_INCLUDE_RE = re.compile(r"^(?:-r|--requirement)(?:\s+|=)(\S+)", re.I)
+MAX_INCLUDE_DEPTH = 5      # -r 引用链最大深度（防病态嵌套/死循环）
+MAX_INCLUDE_FILES = 50     # 单次解析最多跟随的清单文件数
 
-    版本约束会去除 [extras] 与环境标记（; python_version ...），
-    供后续按锁定版本精确查询许可证元数据。
+
+def path_within(base, target):
+    """target 解析后是否落在 base 目录内（跟随符号链接后再判定）。
+
+    v0.4.2：CLI 与 Web 都要跟随 `-r` 引用，而引用路径来自使用者提供的清单，
+    必须做目录围栏——`p.parent / inc` 在 inc 为绝对路径时会被 pathlib 直接
+    替换成该绝对路径，于是 `-r /etc/passwd` 可以读到清单目录之外的文件。
+    web/server.py 复用本函数，避免两处各写一份判定。
     """
+    try:
+        base_r = Path(base).resolve()
+        tgt_r = Path(target).resolve()
+    except (OSError, RuntimeError):        # RuntimeError: resolve 遇到符号链接环
+        return False
+    return tgt_r == base_r or base_r in tgt_r.parents
+
+
+def collect_requirement_files(path, include_root=None):
+    """展开 requirements 清单的 -r / --requirement 引用链。
+
+    真实项目的 requirements.txt 常常只是一个指针文件（内容就一行
+    `-r requirements/runtime.txt`）。不跟随就只能解析出 0 个依赖，而且不报错
+    ——用户会以为项目真的没有依赖。v0.4.2 起 CLI 与此前已实现跟随的
+    scan_projects.py / web 端行为一致。
+
+    返回 (文件列表, 提示列表)：文件列表含自身，按引用顺序去重；
+    提示列表是可读说明（跟随了几个文件、哪些引用被跳过），供调用方打印，
+    避免"静默少解析"这种最难排查的失败方式。
+    """
+    path = Path(path)
+    base = Path(include_root) if include_root else path.parent
+    files, seen = [], set()
+    notes, unsafe, missing, too_deep = [], [], [], []
+
+    def walk(cur, depth):
+        try:
+            key = cur.resolve()
+        except OSError:
+            key = cur
+        if key in seen:                       # 环路：a 引用 b、b 又引用 a
+            return
+        seen.add(key)
+        files.append(cur)
+        if depth >= MAX_INCLUDE_DEPTH:
+            too_deep.append(str(cur))
+            return
+        if len(files) >= MAX_INCLUDE_FILES:
+            return
+        try:
+            text = cur.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            return
+        for line in text.splitlines():
+            m = _INCLUDE_RE.match(line.split("#")[0].strip())
+            if not m:
+                continue
+            inc = m.group(1).strip().strip("\"'")
+            # 绝对路径、~ 家目录、盘符相对路径（C:foo）一律不接受
+            if not inc or Path(inc).is_absolute() or inc[0] in ("~", "\\") \
+                    or ":" in inc.split("/")[0]:
+                unsafe.append(inc)
+                continue
+            q = cur.parent / inc
+            if not path_within(base, q) or not q.is_file():
+                missing.append(inc)
+                continue
+            walk(q, depth + 1)
+
+    walk(path, 0)
+    if len(files) > 1:
+        shown = "、".join(str(f) for f in files[1:6])
+        notes.append(f"清单为指针文件，已跟随 {len(files) - 1} 个 -r 引用：{shown}")
+    if unsafe:
+        notes.append(f"已忽略 {len(unsafe)} 处绝对路径或越界引用（安全围栏）："
+                     + "、".join(unsafe[:3]))
+    if missing:
+        notes.append(f"有 {len(missing)} 处 -r 引用的文件不存在或不可读："
+                     + "、".join(missing[:3]))
+    if too_deep:
+        notes.append(f"引用链超过 {MAX_INCLUDE_DEPTH} 层，已停止跟随："
+                     + "、".join(too_deep[:2]))
+    return files, notes
+
+
+def _parse_requirements_lines(path):
+    """解析单个 requirements 文件的依赖行（不跟随引用）。"""
     out = []
-    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+    for line in Path(path).read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = line.split("#")[0].strip()
         if not line or line.startswith("-") or "://" in line:
             continue
@@ -954,6 +1048,36 @@ def parse_requirements_verbose(path: Path):
             spec = re.sub(r"\[[^\]]*\]", "", spec)      # 去掉 [extras]
             spec = spec.split(";")[0].strip()            # 去掉环境标记
             out.append((m.group(1), spec))
+    return out
+
+
+def parse_requirements_verbose(path, include_root=None, notes=None, follow=True):
+    """解析 requirements.txt，返回 [(包名, 版本约束), ...]，保留版本信息。
+
+    版本约束会去除 [extras] 与环境标记（; python_version ...），
+    供后续按锁定版本精确查询许可证元数据。
+
+    v0.4.2：默认跟随 -r / --requirement 引用。此前 CLI 入口对 `-r` 开头的行
+    直接跳过（web 与 scan_projects 却已实现跟随），同一份清单换个入口就得到
+    不同结果。`include_root` 指定允许的引用范围，默认取清单自身所在目录；
+    web 端传入解压目录以保持原有围栏。`notes` 传入列表时追加可读提示。
+    """
+    if not follow:
+        return _parse_requirements_lines(path)
+    files, msgs = collect_requirement_files(path, include_root)
+    if notes is not None:
+        notes.extend(msgs)
+    out, seen = [], set()
+    for f in files:
+        try:
+            pairs = _parse_requirements_lines(f)
+        except OSError:
+            continue
+        for name, spec in pairs:
+            key = re.sub(r"[-_.]+", "-", name).lower()   # PEP 503 归一化后去重
+            if key not in seen:
+                seen.add(key)
+                out.append((name, spec))
     return out
 
 
@@ -996,6 +1120,18 @@ def split_workspace_deps(pairs):
         else:
             external.append(name)
     return external, internal
+
+
+def exclude_workspace_deps(pairs):
+    """按 workspace: 标记过滤 [(包名, 版本约束)]，返回 (保留的对, 排除的包名)。
+
+    split_workspace_deps() 返回的是包名列表，适合统计；但调用方往往还需要
+    保留版本约束（去做锁定版本查询），直接拿包名列表当依赖对用会崩溃。
+    这里提供"保留原始对"的版本，CLI 与 Web 两个入口都用它，保证行为一致。
+    """
+    external, internal = split_workspace_deps(pairs)
+    keep = set(external)
+    return [(n, s) for n, s in pairs if n in keep], internal
 
 
 _REQ_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)")
@@ -1547,6 +1683,25 @@ def render_report(project_name, project_license, records, findings, locked=0):
     return "\n".join(md), report
 
 
+def report_paths(out):
+    """由 --out 推导 (Markdown 报告路径, JSON 报告路径)，两者必定不同。
+
+    v0.4.2：此前 JSON 路径写作 out.replace(".md", ".json")。输出名不含 ".md" 时
+    该替换不生效，两条路径指向同一个文件，Markdown 正文被 JSON 静默覆盖
+    （`--out out.txt` → 只剩 JSON，终端还打印两个相同路径）。现在只在确实以
+    .md 结尾时替换后缀，否则追加 .json，从根上排除同名覆盖。
+    """
+    out_path = Path(out)
+    md_path = out_path
+    if out_path.suffix.lower() == ".md":
+        json_path = out_path.with_suffix(".json")
+    else:
+        json_path = Path(str(out_path) + ".json")
+    if json_path == md_path:                     # 理论上到不了，兜底
+        json_path = Path(str(out_path) + ".json")
+    return md_path, json_path
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--requirements")
@@ -1563,6 +1718,8 @@ def main():
     a = ap.parse_args()
 
     specs = {}
+    manifest_notes = []      # 清单解析过程中的可读提示（-r 跟随情况等）
+    ws_deps = []             # monorepo 工作区内部包（workspace: 标记）
     # 清单解析失败（文件不存在、JSON/TOML 语法错误等）时给出可读提示，
     # 而不是抛出 Python 堆栈——面向学生用户，堆栈会让人以为工具坏了。
     try:
@@ -1570,7 +1727,7 @@ def main():
             path = Path(a.requirements)
             if not path.exists():
                 ap.error(f"依赖清单不存在：{a.requirements}")
-            vpkgs = parse_requirements_verbose(path)
+            vpkgs = parse_requirements_verbose(path, notes=manifest_notes)
             pkgs, source = [n for n, _ in vpkgs], "PyPI"
             specs = {n.lower(): s for n, s in vpkgs}
         elif a.pyproject:
@@ -1585,6 +1742,10 @@ def main():
             if not path.exists():
                 ap.error(f"依赖清单不存在：{a.package_json}")
             vpkgs = parse_package_json_verbose(path)
+            # v0.4.2：CLI 此前不做工作区排除，monorepo 的内部包会被当成第三方
+            # 依赖去查 npm，查不到就记「源站无此包」并报中危——与 README 宣称的
+            # 「已按 workspace: 标记识别并排除」不符（检查清单 P1-1）。
+            vpkgs, ws_deps = exclude_workspace_deps(vpkgs)
             pkgs, source = [n for n, _ in vpkgs], "npm"
             specs = {n.lower(): s for n, s in vpkgs}
         elif a.packages:
@@ -1603,6 +1764,13 @@ def main():
         print("     清单里没有可解析的依赖项，将生成一份空清单报告。")
     else:
         print(f"[1/4] 解析依赖清单：{len(pkgs)} 个直接依赖（来源 {source}）")
+    # 清单结构与排除项都显式说出来：静默少解析 / 静默排除是最难排查的两类问题
+    for _n in manifest_notes:
+        print(f"     · {_n}")
+    if ws_deps:
+        shown = "、".join(ws_deps[:5]) + ("…" if len(ws_deps) > 5 else "")
+        print(f"     · 已排除 {len(ws_deps)} 个 monorepo 工作区内部包"
+              f"（workspace: 标记，不发布到 npm、不参与审计）：{shown}")
 
     locked = sum(1 for s in specs.values() if _exact_version(s))
     if locked:
@@ -1640,10 +1808,14 @@ def main():
 
     md_text, report = render_report(a.project_name, a.project_license,
                                     records, findings, locked)
-    Path(a.out).write_text(md_text, encoding="utf-8")
-    Path(a.out.replace(".md", ".json")).write_text(
-        json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"报告已写出：{a.out} / {a.out.replace('.md', '.json')}")
+    md_path, json_path = report_paths(a.out)
+    md_path.write_text(md_text, encoding="utf-8")
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=1),
+                         encoding="utf-8")
+    print(f"报告已写出：{md_path}（Markdown） / {json_path}（JSON）")
+    if Path(a.out).suffix.lower() != ".md":
+        print(f"     提示：--out 未以 .md 结尾，JSON 报告已另存为 {json_path.name}，"
+              "两份报告互不覆盖")
 
 
 if __name__ == "__main__":

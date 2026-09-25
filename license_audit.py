@@ -2,7 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 license_audit.py — 开源许可证合规检查 + 《开源及第三方资源使用清单》生成器
-AIC·AI+开源赛道参赛作品「依赖许可证哨兵」 v0.3
+AIC·AI+开源赛道参赛作品「依赖许可证哨兵」
+
+版本号以本文件下方的 VERSION 常量为唯一来源，不在此处硬编码——
+此前这里写 v0.3，而 VERSION 已到 0.4、pyproject.toml 又是 0.3.0，
+三处各说各话（审查报告 L1）。下方按引入版本分节记录修正历史。
 
 功能链路：
   依赖清单解析 → PyPI/npm 元数据抓取 → 许可证归一化(SPDX) → 类别判定
@@ -43,6 +47,14 @@ v0.3 增补（并发、诚实性、可复现性）：
   · 版本约束 "v1.2.3" 前缀此前会原样去查 PyPI 导致 404 → 归一化后再查
   · 元数据抓取改为可选线程池并发（--jobs），零第三方依赖，实测扫描提速约 8—10 倍
 
+v0.4.1 修正（第三方审查报告，逐条复现后修复）：
+  · 项目自身许可证未归一化就查 COMPAT_MATRIX，查不到便退化成空集合，
+    导致该项目下所有传染性依赖被逐条误报为冲突。matplotlib 的
+    "PSF-based"（本就等同 PSF-2.0）使其 3 个 MPL 依赖全被报中危。
+    → 新增 resolve_project_license()，先归一化再查表；矩阵确实未覆盖时
+      不再逐条下冲突结论，改为合成一条「无法判定」并点名涉及的依赖。
+  · 补入 Sustainable-Use-1.0（n8n 等项目自身使用的源码可得许可）。
+
 用法：
   python license_audit.py --requirements req.txt --project-license MIT
   python license_audit.py --packages requests pymupdf --project-license Apache-2.0 --transitive 40
@@ -60,7 +72,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "0.4"
+VERSION = "0.4.1"
 
 
 def _force_utf8_stdio():
@@ -185,6 +197,9 @@ SPDX_PATTERNS = [
     (r"^ZPL\b|Zope Public", "ZPL-2.1"),
     (r"^Elastic[- ]?(License )?2|Elastic License", "Elastic-2.0"),
     (r"^BUSL|^(?:BUSL|BSL)[- ]?1\.1|Business Source License", "BSL-1.1"),
+    # v0.5：n8n 等项目用作自身许可证的源码可得许可，此前落 UNKNOWN，
+    # 连带使其在 COMPAT_MATRIX 中查不到，触发 H2 那类系统性误报。
+    (r"^Sustainable Use", "Sustainable-Use-1.0"),
     (r"^SSPL|Server Side Public", "SSPL-1.0"),
     (r"^CC[- ]?BY[- ]?SA[- ]?4", "CC-BY-SA-4.0"),
     (r"^CC[- ]?BY[- ]?4|^CC[- ]?BY\b|Creative Commons Attribution", "CC-BY-4.0"),
@@ -272,6 +287,7 @@ LICENSE_DB = {
     # 源码可得（source-available）：能拿到源码，但附带商业使用限制
     "Elastic-2.0":    ("source-available",  "不得作为托管服务对外提供；不得规避付费功能限制；不得移除版权与许可声明"),
     "BSL-1.1":        ("source-available",  "变更日之前限制生产环境商业使用，到期后转为开源许可"),
+    "Sustainable-Use-1.0": ("source-available", "仅允许内部业务与非商业用途；不得将该软件本身作为商业产品对外提供（n8n 等使用）"),
     # 非 OSI 但条款宽松的内容许可，用于软件时解释存在不确定性
     "CC-BY-4.0":      ("permissive",        "署名即可自由使用；不含专利授权条款（内容许可，非软件许可）"),
     "UNKNOWN":        ("unknown",           "许可证未识别，须人工确认后方可分发"),
@@ -286,6 +302,9 @@ NON_OSI_NOTES = {
                    "禁止规避付费功能限制——商业 SaaS 场景需单独取得商业授权",
     "BSL-1.1": "非 OSI 认证许可：变更日之前不得用于生产环境商业用途，"
                "到期后自动转为开源许可（具体日期见上游 LICENSE 文件）",
+    "Sustainable-Use-1.0": "非 OSI 认证许可（n8n 自定条款，非 SPDX 标准标识）："
+                           "仅限内部业务与非商业用途，不得把该软件本身作为商业产品提供；"
+                           "条款由厂商单方修订，商业使用前须核对当期文本",
     "SSPL-1.0": "非 OSI 认证许可（SSPL 未获 OSI 批准，部分发行版不视为开源）："
                 "对外提供服务时须开放整个服务栈源码，义务范围比 AGPL 更广",
     "CC-BY-4.0": "非 OSI 认证许可：这是 Creative Commons 内容许可，不是软件许可，"
@@ -516,6 +535,7 @@ COMPAT_MATRIX = {
     # 源码可得项目：自身受商业限制，但引入的依赖仍按"不得引入更强传染"判定
     "Elastic-2.0": _PERMISSIVE_PROJECT,
     "BSL-1.1": _PERMISSIVE_PROJECT,
+    "Sustainable-Use-1.0": _PERMISSIVE_PROJECT,
 }
 
 # 矩阵未覆盖项目许可证时的提示语（不再静默按"一律冲突"处理）
@@ -526,6 +546,31 @@ MATRIX_NOT_COVERED_NOTICE = (
 )
 
 
+def resolve_project_license(project_license):
+    """把项目自身许可证归一到矩阵可查的规范标识；归一不到（矩阵未覆盖）返回 None。
+
+    v0.5 修正（审查报告 H2「兼容矩阵未覆盖引发系统性误报」）：
+    此前直接用原始写法查 COMPAT_MATRIX。项目许可证往往写的是上游自称的
+    非规范写法——matplotlib 的 pyproject 里写的就是 "PSF-based"，
+    n8n 写的是 "Sustainable Use License"。这类写法查不到 → `get(..., set())`
+    返回空集合 → 该项目下**所有**弱传染/强传染依赖被逐条报成冲突。
+
+    实测复现：以 "PSF-based" 为项目许可扫描 matplotlib 依赖，
+    certifi / pikepdf / pytest-rerunfailures 三个 MPL-2.0 依赖全部被报中危；
+    换成归一化后的 "PSF-2.0" 则为 0 条。
+
+    因此这里先做归一化再查表——"PSF-based" 归一化后本就是 PSF-2.0。
+    """
+    if not project_license:
+        return None
+    if project_license in COMPAT_MATRIX:
+        return project_license
+    norm = normalize_license(project_license)
+    if norm in COMPAT_MATRIX:
+        return norm
+    return None
+
+
 def matrix_notice(project_license):
     """项目许可证不在兼容性矩阵覆盖范围内时，返回一条显式提示；否则返回 None。
 
@@ -534,7 +579,7 @@ def matrix_notice(project_license):
     """
     if not project_license:
         return MATRIX_NOT_COVERED_NOTICE.format(lic="（未填写）")
-    if project_license not in COMPAT_MATRIX:
+    if resolve_project_license(project_license) is None:
         return MATRIX_NOT_COVERED_NOTICE.format(lic=project_license)
     return None
 
@@ -1234,7 +1279,13 @@ def _exact_version(spec):
 def detect_conflicts(project_license, records, transitive_limit=0):
     """返回冲突列表。每条含：级别 / 依赖 / 许可证 / 原因 / 建议。"""
     findings = []
-    allowed = COMPAT_MATRIX.get(project_license, set())
+    resolved = resolve_project_license(project_license)
+    covered = resolved is not None
+    allowed = COMPAT_MATRIX.get(resolved, set())
+    # 矩阵未覆盖时，我们并不知道该项目许可证与各类传染许可的兼容关系，
+    # 逐条输出"是冲突"等于用一个不存在的依据下判断（H2 的系统性误报来源）。
+    # 先把这类依赖收集起来，最后合成一条显式说明，把不确定性交给使用者。
+    undecided = []
 
     for r in records:
         if r["status"] != "OK":
@@ -1283,18 +1334,37 @@ def detect_conflicts(project_license, records, transitive_limit=0):
                 "reason": f"AGPL 依赖{note}：只要项目以网络服务形式对外提供，即触发整体源码开放义务",
                 "advice": "确认是否接受开源全部服务端代码；否则替换该依赖或隔离为独立进程",
             })
-        elif cat == "strong-copyleft" and cat not in allowed:
-            findings.append({
-                "level": "高", "pkg": r["name"], "license": r["spdx"],
-                "reason": f"{project_license} 项目引入强传染依赖{note}，衍生作品可能需整体以 GPL 开放",
-                "advice": "改用宽松许可替代品，或将该依赖隔离为独立可执行程序并通过进程边界调用",
-            })
-        elif cat == "weak-copyleft" and cat not in allowed:
-            findings.append({
-                "level": "中", "pkg": r["name"], "license": r["spdx"],
-                "reason": f"弱传染依赖{note}：修改库本体需按原许可开放",
-                "advice": "保持动态链接、不改动库本体，并在清单中注明",
-            })
+        elif cat == "strong-copyleft":
+            if not covered:
+                undecided.append((r["name"], r["spdx"], "强传染"))
+            elif cat not in allowed:
+                findings.append({
+                    "level": "高", "pkg": r["name"], "license": r["spdx"],
+                    "reason": f"{project_license} 项目引入强传染依赖{note}，衍生作品可能需整体以 GPL 开放",
+                    "advice": "改用宽松许可替代品，或将该依赖隔离为独立可执行程序并通过进程边界调用",
+                })
+        elif cat == "weak-copyleft":
+            if not covered:
+                undecided.append((r["name"], r["spdx"], "弱传染"))
+            elif cat not in allowed:
+                findings.append({
+                    "level": "中", "pkg": r["name"], "license": r["spdx"],
+                    "reason": f"弱传染依赖{note}：修改库本体需按原许可开放",
+                    "advice": "保持动态链接、不改动库本体，并在清单中注明",
+                })
+
+    if undecided:
+        # 合成一条，而不是逐条报"冲突"：结论的强度必须配得上证据的强度。
+        shown = "、".join(f"{n}({s})" for n, s, _ in undecided[:6])
+        more = f" 等共 {len(undecided)} 个" if len(undecided) > 6 else ""
+        findings.append({
+            "level": "中", "pkg": "（项目整体）", "license": "—",
+            "reason": f"项目自身许可证「{project_license}」未纳入兼容性矩阵，"
+                      f"无法逐对判定兼容性：涉及 {len(undecided)} 个传染性依赖"
+                      f"（{shown}{more}）。本条不是「检出冲突」，而是「无法判定」。",
+            "advice": "在 COMPAT_MATRIX 中补入该项目许可证（或改用其规范标识）后重跑；"
+                      "此前不要把这批依赖当作已确认冲突处理",
+        })
 
     # 传递依赖抽查：只看直接依赖时最容易漏掉传染性许可
     if transitive_limit > 0:

@@ -82,7 +82,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 
 
 def _force_utf8_stdio():

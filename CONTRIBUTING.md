@@ -19,8 +19,8 @@
 git clone https://github.com/ank678code/open-source-license-audit.git
 cd open-source-license-audit
 
-python test_cases.py      # 181 个用例：归一化 + 兼容性 + 知识库 + 未识别归因 + workspace 识别
-python test_semantic.py   #  87 个用例：证据采集 + 防幻觉校验 + 回退行为
+python test_cases.py      # 251 个用例：归一化 + 兼容性 + 知识库 + 归因 + workspace + 审查报告/检查清单修复
+python test_semantic.py   #  95 个用例：证据采集 + 防幻觉校验 + 回退行为
 ```
 
 提交前**两个都必须全绿**，且不能有 `pyflakes` 告警：
@@ -28,6 +28,20 @@ python test_semantic.py   #  87 个用例：证据采集 + 防幻觉校验 + 回
 ```bash
 python -m pyflakes *.py      # 应无输出
 ```
+
+改了代码、加了用例或改了扫描数据之后，再跑一次**一致性闸门**：
+
+```bash
+python check_docs_consistency.py
+```
+
+它会实际跑一遍两个测试文件，核对 `README.md` / `CONTRIBUTING.md` 里声明的
+用例数、扫描指标，以及 `VERSION` / `pyproject.toml` / `CHANGELOG` /
+`scan_summary.json` 四处版本号是否一致。**CI 里也会跑这一步。**
+
+> 为什么要专门做这道闸门：「文档落后于代码」已连续两轮被外部检查指出
+> （交付数据滞后、版本号不一致、文档用例数过时）。数字硬编码在文档里，
+> 每加一组用例就会漂移，靠人工每轮核对必然漏，所以交给 CI 拦。
 
 ## 四类常见的贡献
 
@@ -61,7 +75,7 @@ python -c "from license_audit import normalize_license; print(normalize_license(
 - 工具当前判成了什么、应该判成什么
 - 为什么（引用许可证条款或 SPDX 定义）
 
-然后**把这条真实值写成测试用例**——本项目 268 个用例每一个都对应一次真实误判，
+然后**把这条真实值写成测试用例**——本项目 346 个用例每一个都对应一次真实误判，
 不是编造的假数据。新增用例放在 `test_cases.py` 对应的分组里（K 组是许可证知识库，
 L 组是未识别归因）。
 

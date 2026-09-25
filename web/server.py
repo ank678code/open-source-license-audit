@@ -33,7 +33,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 
 from license_audit import (parse_requirements_verbose, parse_pyproject_verbose,
-                           parse_package_json_verbose,
+                           parse_package_json_verbose, exclude_workspace_deps,
                            audit, category_of, obligations_of, to_checklist_table,
                            CATEGORY_CN, VERSION)
 from semantic_audit import collect_evidence, judge_by_rules, evidence_summary
@@ -43,12 +43,36 @@ MAX_PKGS = 200                   # 单次审计的依赖上限，避免误传超
 JOBS = 12                        # 元数据抓取并发数（零第三方依赖，用标准库线程池）
 MANIFEST_CANDIDATES = ["requirements.txt", "requirements/runtime.txt",
                        "requirements/common.txt", "pyproject.toml", "package.json"]
+# v0.4.2：请求体上限只约束了"压缩包本身"。压缩比极高的包解压后可以膨胀到
+# 几十 GB，把本机磁盘写满，因此还要限制解压后的总大小与条目数。
+MAX_UNZIP_BYTES = 200 * 1024 * 1024
+MAX_UNZIP_ENTRIES = 2000
+# 合法清单类型 → 落盘扩展名。非法值此前会 KeyError 被兜底 except 捕获，
+# 返回 500 内部错误；应作为客户端参数错误返回 400。
+MANIFEST_KINDS = {"requirements": ".txt", "pyproject": ".toml",
+                  "package-json": ".json"}
+
+
+def manifest_ext(kind):
+    """把前端传来的清单类型映射成扩展名；非法类型抛 ValueError（→ 400）。"""
+    try:
+        return MANIFEST_KINDS[kind]
+    except KeyError:
+        raise ValueError(
+            f"不支持的清单类型：{kind}（可选：{'、'.join(MANIFEST_KINDS)}）")
 
 
 def safe_extract(zf, dest):
-    """解压 zip，拒绝路径穿越与绝对路径。"""
+    """解压 zip，拒绝路径穿越与绝对路径，并限制解压后的规模。"""
     dest = Path(dest).resolve()
-    for m in zf.infolist():
+    members = zf.infolist()
+    if len(members) > MAX_UNZIP_ENTRIES:
+        raise ValueError(f"压缩包条目数过多（{len(members)} > {MAX_UNZIP_ENTRIES}）")
+    total = sum(max(0, m.file_size) for m in members)
+    if total > MAX_UNZIP_BYTES:
+        raise ValueError(f"压缩包解压后过大（约 {total // (1024 * 1024)}MB > "
+                         f"{MAX_UNZIP_BYTES // (1024 * 1024)}MB）")
+    for m in members:
         name = m.filename.replace("\\", "/")
         if name.startswith("/") or ".." in Path(name).parts:
             raise ValueError(f"压缩包内含非法路径：{m.filename}")
@@ -58,29 +82,24 @@ def safe_extract(zf, dest):
     zf.extractall(dest)
 
 
-def _within(base, target):
-    """target 解析后是否落在 base 之内（跟随符号链接后再判定）。
-
-    v0.5 新增（审查报告 M1）：解压时已拒绝路径穿越，但"跟随 -r 引用"这一步
-    绕过了那层防护——`p.parent / inc` 在 inc 为绝对路径时会被 pathlib 直接
-    替换成该绝对路径（POSIX `/etc/passwd`、Windows `C:/Windows/win.ini`），
-    于是可以读到解压目录外的本机任意文件，并把解析出的包名回显给客户端。
-    这里用解析后路径做围栏，`..` 与符号链接一并覆盖。
-    """
-    try:
-        base_r = Path(base).resolve()
-        tgt_r = Path(target).resolve()
-    except (OSError, RuntimeError):        # RuntimeError: resolve 遇到符号链接环
-        return False
-    return tgt_r == base_r or base_r in tgt_r.parents
+# 说明：`-r` 引用的跟随与路径围栏（path_within）统一由
+# license_audit.parse_requirements_verbose() 提供，CLI 与 Web 共用同一套判定，
+# 避免两个入口各写一份、日后只改一处导致防护宽度不一致。此处不再单独实现。
 
 
 def detect_and_parse(project_dir):
-    """在解压后的项目里找依赖清单并解析，返回 (清单相对路径, 包名列表, 生态, 版本约束表)。"""
+    """在解压后的项目里找依赖清单并解析。
+
+    返回 (清单相对路径, 包名列表, 生态, 版本约束表, 已排除的工作区内部包)。
+    `-r` 引用由 parse_requirements_verbose 统一跟随（含目录围栏、环路与深度
+    保护），不再在这里自己写一份——v0.4.2 之前此处只跟随一层且取首个非空结果，
+    与 scan_projects.py 的递归跟随行为不一致（检查清单 P3-4/P3-5）。
+    """
     for rel in MANIFEST_CANDIDATES:
         p = project_dir / rel
         if not p.exists():
             continue
+        ws_deps = []
         try:
             if rel.endswith(".toml"):
                 vpkgs = parse_pyproject_verbose(p)
@@ -88,37 +107,22 @@ def detect_and_parse(project_dir):
             elif rel.endswith(".json"):
                 vpkgs = parse_package_json_verbose(p)
                 kind = "npm"
+                # monorepo 内部包不发布到 npm，查了必然 404 并被记成"源站无此包"
+                vpkgs, ws_deps = exclude_workspace_deps(vpkgs)
             else:
-                vpkgs = parse_requirements_verbose(p)
+                vpkgs = parse_requirements_verbose(p, include_root=project_dir)
                 kind = "PyPI"
-                if not vpkgs:                      # 指针文件：跟随 -r 引用
-                    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-                        s = line.strip()
-                        if s.lower().startswith(("-r", "--requirement")):
-                            inc = s.split(None, 1)[1].strip()
-                            # 只接受解压目录内的相对引用；绝对路径、
-                            # ~ 家目录、盘符相对路径（C:foo）一律忽略
-                            if not inc or Path(inc).is_absolute() \
-                                    or inc[0] in ("~", "\\") or ":" in inc.split("/")[0]:
-                                continue
-                            q = (p.parent / inc)
-                            if not _within(project_dir, q):
-                                continue
-                            if q.exists() and q.is_file():
-                                vpkgs = parse_requirements_verbose(q)
-                                kind = "PyPI"
-                                break
         except Exception:
             continue
         if vpkgs:
             pkgs = [n for n, _ in vpkgs]
             specs = {n.lower(): s for n, s in vpkgs}
-            return rel, pkgs, kind, specs
-    return None, [], "PyPI", {}
+            return rel, pkgs, kind, specs, ws_deps
+    return None, [], "PyPI", {}, []
 
 
 def build_payload(project_name, project_license, records, findings,
-                  project_dir=None, manifest_label=""):
+                  project_dir=None, manifest_label="", workspace_excluded=()):
     from collections import Counter
     resolved = [r for r in records if r["spdx"] != "UNKNOWN"]
     high = [r for r in records if r.get("confidence") == "高"]
@@ -161,7 +165,11 @@ def build_payload(project_name, project_license, records, findings,
             "findings": len(findings), "findings_high": hi,
             "categories": {CATEGORY_CN.get(k, k): v for k, v in cats.items()},
             "semantic": bool(project_dir),
+            # v0.4.2：把这些内部包显式报出来。数量对得上，用户才知道
+            # 依赖数比 package.json 里少是"排除"还是"漏解析"。
+            "workspace_excluded": len(workspace_excluded),
         },
+        "workspace_excluded": list(workspace_excluded),
         "records": out_records,
         "findings": findings,
         "checklist_md": to_checklist_table(records, judgments),
@@ -210,44 +218,56 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if req.get("zip_b64"):
                 tmp = tempfile.mkdtemp(prefix="audit_")
-                raw = base64.b64decode(req["zip_b64"].split(",")[-1])
-                safe_extract(zipfile.ZipFile(io.BytesIO(raw)), tmp)
+                try:
+                    raw = base64.b64decode(req["zip_b64"].split(",")[-1])
+                    safe_extract(zipfile.ZipFile(io.BytesIO(raw)), tmp)
+                except (ValueError, zipfile.BadZipFile) as e:
+                    # 压缩包本身的问题属于客户端输入错误，应回 400；
+                    # 此前一律落到兜底 except 返回 500，语义不准也不好排查
+                    return self._send(400, json.dumps({"error": f"压缩包被拒绝：{e}"}))
                 proj = Path(tmp)
                 # 若压缩包内只有一层根目录，自动下钻
                 subs = [x for x in proj.iterdir() if x.is_dir()]
                 files = [x for x in proj.iterdir() if x.is_file()]
                 if len(subs) == 1 and not files:
                     proj = subs[0]
-                rel, pkgs, src, specs = detect_and_parse(proj)
+                rel, pkgs, src, specs, ws = detect_and_parse(proj)
                 if not pkgs:
                     return self._send(400, json.dumps(
                         {"error": "压缩包里没找到可解析的依赖清单（requirements.txt / pyproject.toml / package.json）"}))
                 records, findings = audit(sorted(set(pkgs))[:MAX_PKGS], plic, src,
                                           version_specs=specs, jobs=JOBS)
-                payload = build_payload(pname, plic, records, findings, proj, rel)
+                payload = build_payload(pname, plic, records, findings, proj, rel, ws)
             else:
                 text = req.get("manifest") or ""
                 if not text.strip():
                     return self._send(400, json.dumps({"error": "依赖清单为空"}))
                 kind = req.get("kind") or "requirements"
+                try:
+                    ext = manifest_ext(kind)
+                except ValueError as e:
+                    return self._send(400, json.dumps({"error": str(e)}))
                 tmp = tempfile.mkdtemp(prefix="audit_")
-                ext = {"requirements": ".txt", "pyproject": ".toml",
-                       "package-json": ".json"}[kind]
                 mf = Path(tmp) / ("manifest" + ext)
                 mf.write_text(text, encoding="utf-8")
+                ws = []
                 if kind == "pyproject":
                     vpkgs, src = parse_pyproject_verbose(mf), "PyPI"
                 elif kind == "package-json":
                     vpkgs, src = parse_package_json_verbose(mf), "npm"
+                    vpkgs, ws = exclude_workspace_deps(vpkgs)
                 else:
-                    vpkgs, src = parse_requirements_verbose(mf), "PyPI"
+                    # include_root 限定在临时目录内：粘贴的清单里若写了
+                    # `-r /etc/passwd` 之类的绝对路径，围栏会直接拒绝
+                    vpkgs, src = parse_requirements_verbose(mf, include_root=tmp), "PyPI"
                 pkgs = [n for n, _ in vpkgs]
                 specs = {n.lower(): s for n, s in vpkgs}
                 if not pkgs:
                     return self._send(400, json.dumps({"error": "没有解析出任何依赖，请检查清单格式"}))
                 records, findings = audit(sorted(set(pkgs))[:MAX_PKGS], plic, src,
                                           version_specs=specs, jobs=JOBS)
-                payload = build_payload(pname, plic, records, findings, None, "粘贴的清单")
+                payload = build_payload(pname, plic, records, findings, None,
+                                        "粘贴的清单", ws)
             self._send(200, json.dumps(payload, ensure_ascii=False))
         except Exception as e:
             self._send(500, json.dumps({"error": f"审计失败：{e}"}))

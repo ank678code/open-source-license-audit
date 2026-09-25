@@ -7,7 +7,7 @@
 只依赖 Python 标准库（不 import license_audit，避免"用工具验证工具"）。
 固定随机种子，结果可复现。
 
-比对口径（v0.5 起同时输出两个，避免只报一个好看的数字）：
+比对口径（v0.4.1 起同时输出两个，避免只报一个好看的数字）：
 
   严口径（strict）——只做机械规范化：大小写、标点归一、去掉 "license" 词、
   `v` 前缀、`+`/or-later 后缀、`2-0`→`2.0`。**不查任何映射表**。
@@ -18,7 +18,7 @@
   用于回答"工具判定是否有源站依据"，但**说服力弱于严口径**，因为
   ALIAS 表本身是工具的既有知识，用它来比对带有自证成分。
 
-工具判 UNKNOWN 而源站有值的条目，两个口径都不计入一致（v0.5 修正：
+工具判 UNKNOWN 而源站有值的条目，两个口径都不计入一致（v0.4.1 修正：
 此前这类被 loose_match 直接判为一致，等于把漏判算成正确）。
 
 用法：
@@ -149,15 +149,18 @@ def strict_match(tool, cands):
 def loose_match(tool, cands):
     """宽松比对：任一元数据写法能指向工具判定即算一致。
 
-    比对刻意从宽——目的不是挑工具的错，而是确认"工具判定是否有源站依据"。
+    比对刻意从宽——目的不是挑工具的错，而是确认「工具判定是否有源站依据」。
     真正的争议条目由人工复核（见 verify_sample.md），脚本只做初筛。
+
+    注意：这里**不含**任何"UNKNOWN 视为一致"的宽容分支。v0.4.1 起主流程
+    已把"源站有值但工具未识别"前置分流为漏判桶，工具判 UNKNOWN 却在此处
+    返回 True 会把真实漏判算成正确——v0.4.2 删掉该分支（检查清单 P3-3）。
     """
     if not tool:
         return False
     t = str(tool).strip().lower()
-    # 工具标 unknown 的条目：源站信息不足，本身就是"不臆断"的正确行为
     if t.startswith("unknown") or t.endswith("-unknown") or t == "":
-        return True
+        return False
 
     joined = " | ".join(str(c) for c in cands).lower()
 

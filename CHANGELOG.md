@@ -4,6 +4,68 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.2] — 2026-09-25
+
+按第三方《仓库问题检查清单》逐项修复。清单列出 11 项（高 2 / 中 4 / 低 5），
+逐条**先复现再改**——其中 1 项（P2-2 的成因判断）复现后与清单描述不同，
+已在 FIXES 第十三节说明。本轮含行为变更，按语义化版本作为补丁版升起。
+
+### 修复
+
+- **CLI 与 Web 入口未排除 monorepo 工作区内部包**（P1-1，高危）
+  排除逻辑只有 `scan_projects.py` 做了，`license_audit.py --package-json` 与
+  `web/server.py` 会把 `workspace:*` 内部包当成第三方依赖去查 npm，返回 404 后
+  记成「源站无此包」并报中危——与 README「现已按 `workspace:` 标记识别并排除」
+  的宣称直接矛盾。现在三个入口共用 `split_workspace_deps()`，且 CLI 会打印
+  排除数量、Web 会在 payload 里返回 `workspace_excluded`，不做静默排除。
+- **`--out` 不含 `.md` 时 JSON 报告覆盖 Markdown 报告**（P1-2，高危）
+  JSON 路径原先写作 `out.replace(".md", ".json")`；输出名不含 `.md` 时替换不
+  生效，两条路径指向同一文件，Markdown 正文被静默覆盖（`--out out.txt` 只剩
+  JSON，终端还打印两个相同路径）。改为 `report_paths()` 统一推导：以 `.md`
+  结尾才换后缀，否则追加 `.json`，两个路径必定不同。
+- **`rescan_failed.py` 重写汇总时丢失 v0.4 新增字段**（P2-3）
+  该脚本整份重建 `scan_summary.json`，导致 `unknown_breakdown` /
+  `unknown_tool_fault` / `effective_resolve_rate` / `workspace_excluded` /
+  `ecosystem` / `manifest` 全部丢失——跑一次重扫就把汇总降级成旧结构。
+  现在以既有汇总里的同项目行为基底再更新；同时重抓时带上
+  `requested_version`（此前固定抓最新版，回填结果与锁定版本口径不一致）。
+- **`FIXES.md` 引用的 `recompute_scan.py` 不在仓库里**（P2-4）
+  离线重算脚本只存在于开发机上，读者按 FIXES 第十二节指引无法复现历史数据。
+  已通用化后补进仓库（`--data` / `--code` / `--dry-run`），并加入 `py-modules`
+  与 `license-audit-recompute` 命令入口。
+- **证据采集的依赖归属使用子串匹配**（P3-1）
+  `in_requirements` 用「包名小写是否出现在清单文本里」判定，`torch` 会被
+  `torchvision` 命中、`pytest` 会被 `pytest-cov` 命中，而这份证据是要喂给
+  模型做合规判断的。改为按清单格式解析出包名、按 PEP 503 归一化后精确比对，
+  并在证据里注明命中哪份清单。`setup.py` 用受限文本抽取（不执行脚本）。
+- **Web 端解压缺少规模限制、非法参数回 500**（P3-2）
+  请求体上限只约束压缩包本身，解压后可膨胀到任意大小。新增解压后总大小
+  （200MB）与条目数（2000）上限；非法的 `kind` 参数此前 KeyError 被兜底
+  `except` 捕获返回 500，现在返回 400 并列出可选值。
+- **抽查脚本保留不可达的宽容分支**（P3-3）
+  `verify_sample.loose_match()` 仍保留「工具判 UNKNOWN 直接算一致」的分支，
+  主流程已前置分流，该分支不可达，却会误导读者以为抽查口径仍然宽松。已删除。
+- **CLI 不跟随 `-r` 指针清单**（P3-4 / P3-5）
+  真实项目的 `requirements.txt` 常常只是一行 `-r requirements/runtime.txt`；
+  CLI 对 `-` 开头的行直接跳过，会静默解析出 0 个依赖且不给任何提示，而
+  `scan_projects.py` 与 Web 端却已实现跟随。现统一到
+  `parse_requirements_verbose()`：递归跟随、环路与深度保护、路径围栏
+  （`path_within()`，拒绝绝对路径 / `~` / 盘符相对路径 / 越界 `..`），
+  并把「跟随了几个引用、哪些被跳过」作为提示打印出来。
+- **文档与代码里的版本标注冲突**（P2-1 / P2-2）
+  README 测试小节仍写 196 / 283（实际 224 / 311）；代码注释与 `verify_sample.md`
+  把 v0.4.1 的修复标成 `v0.5`，而 `CHANGELOG` 与 `pyproject.toml` 都没有 0.5。
+  已统一为实际发布版本，并新增用例守护「源码中不得出现高于 `VERSION` 的版本标注」。
+
+### 测试
+
+- `test_cases.py` 224 → **251**（新增 O 组 26 个：入口一致性、输出路径、
+  `-r` 跟随与围栏、版本标注守护、解压限制、清单类型校验；N 组补 1 个）
+- `test_semantic.py` 87 → **95**（新增 J 组 8 个：依赖归属精确匹配）
+- 合计 **346 个用例**，全部可离线运行，`pyflakes` 零告警
+- 因 `web/server.py` 的 `detect_and_parse()` 返回值新增「已排除的工作区内部包」
+  一项，N19–N21 三个用例的解包方式同步更新（断言语义未变）
+
 ## [0.4.1] — 2026-09-24
 
 按第三方审查报告（`open-source-license-audit 项目审查报告.docx`）逐项修复。
@@ -24,7 +86,8 @@
 - **Web 端任意文件读取面**（M1，安全）
   `web/server.py` 跟随 `-r` 引用时计算 `q = p.parent / inc`；`inc` 为绝对路径时
   pathlib 会用绝对路径**替换**基础路径，`-r /etc/passwd` 即可读到解压目录外的
-  任意文件并回显解析结果。新增 `_within()` 围栏，用 `resolve()` 后路径判定是否
+  任意文件并回显解析结果。新增 `path_within()` 围栏（v0.4.2 起提到 `license_audit` 供 CLI 与 Web 共用），
+  用 `resolve()` 后路径判定是否
   落在解压目录内（覆盖 `..` 与符号链接），并拒绝绝对路径 / `~` / 盘符相对路径。
 - **模型提示词注入面**（M2）
   上传压缩包的文件名/路径被直接拼进发给模型的提示词。新增

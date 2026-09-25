@@ -1,22 +1,23 @@
 {
- "tool_version": "0.3",
+ "tool_version": "0.4.1",
  "projects_scanned": 26,
  "projects_failed": 0,
  "projects_rate_limited": 0,
  "total_dependencies": 1143,
- "resolved": 1118,
- "overall_resolve_rate": 97.8,
- "high_confidence": 1020,
- "overall_high_conf_rate": 89.2,
- "findings": 37,
+ "resolved": 1124,
+ "overall_resolve_rate": 98.3,
+ "high_confidence": 1023,
+ "overall_high_conf_rate": 89.5,
+ "findings": 30,
  "findings_high": 10,
  "projects_with_copyleft": 16,
  "workspace_excluded": 108,
  "category_distribution": {
-  "permissive": 1086,
-  "unknown": 25,
+  "permissive": 1091,
+  "unknown": 19,
   "weak-copyleft": 23,
-  "strong-copyleft": 9
+  "strong-copyleft": 9,
+  "source-available": 1
  },
  "per_project": [
   {
@@ -26,17 +27,17 @@
    "manifest": "snapshot:requirements.txt",
    "ecosystem": "PyPI",
    "total": 70,
-   "resolved": 65,
-   "resolve_rate": 92.9,
-   "high_confidence": 54,
-   "high_conf_rate": 77.1,
+   "resolved": 66,
+   "resolve_rate": 94.3,
+   "high_confidence": 55,
+   "high_conf_rate": 78.6,
    "categories": {
-    "permissive": 60,
-    "unknown": 5,
+    "permissive": 61,
+    "unknown": 4,
     "weak-copyleft": 3,
     "strong-copyleft": 2
    },
-   "findings": 7,
+   "findings": 6,
    "findings_high": 2,
    "copyleft_deps": [
     {
@@ -62,11 +63,17 @@
    ],
    "unresolved": [
     "agentrun-sdk",
-    "azure-identity",
     "de-core-news-sm",
     "en-core-web-sm",
     "ja-core-news-sm"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 2,
+    "NO_METADATA": 2,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -92,6 +99,13 @@
     "nvidia-sphinx-theme",
     "pytest_httpserver"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 2,
+    "UNSUPPORTED_LICENSE": 1,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 98.6,
    "workspace_excluded": 0
   },
   {
@@ -134,6 +148,13 @@
    "unresolved": [
     "rouge"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 1,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -143,26 +164,31 @@
    "manifest": "snapshot:requirements.txt",
    "ecosystem": "PyPI",
    "total": 68,
-   "resolved": 67,
-   "resolve_rate": 98.5,
+   "resolved": 68,
+   "resolve_rate": 100.0,
    "high_confidence": 54,
    "high_conf_rate": 79.4,
    "categories": {
     "permissive": 66,
-    "unknown": 1,
+    "source-available": 1,
     "weak-copyleft": 1
    },
    "findings": 1,
-   "findings_high": 0,
+   "findings_high": 1,
    "copyleft_deps": [
     {
      "name": "tqdm",
      "spdx": "MPL-2.0 AND MIT"
     }
    ],
-   "unresolved": [
-    "arize-phoenix"
-   ],
+   "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -192,6 +218,13 @@
    "unresolved": [
     "openai-harmony"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 1,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -234,6 +267,13 @@
    "unresolved": [
     "rouge"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 1,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -264,6 +304,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -290,6 +337,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -316,6 +370,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -342,6 +403,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -368,6 +436,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -377,13 +452,13 @@
    "manifest": "snapshot:requirements.txt",
    "ecosystem": "PyPI",
    "total": 70,
-   "resolved": 63,
-   "resolve_rate": 90.0,
-   "high_confidence": 63,
-   "high_conf_rate": 90.0,
+   "resolved": 64,
+   "resolve_rate": 91.4,
+   "high_confidence": 64,
+   "high_conf_rate": 91.4,
    "categories": {
-    "permissive": 63,
-    "unknown": 7
+    "permissive": 64,
+    "unknown": 6
    },
    "findings": 7,
    "findings_high": 0,
@@ -394,9 +469,15 @@
     "apache-airflow-devel-common",
     "apache-airflow-docker-tests",
     "apache-airflow-helm-chart",
-    "apache-airflow-kubernetes-tests",
-    "apache-airflow-providers-duckdb"
+    "apache-airflow-kubernetes-tests"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 5,
+    "NO_METADATA": 1,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -414,7 +495,7 @@
     "permissive": 49,
     "weak-copyleft": 3
    },
-   "findings": 3,
+   "findings": 0,
    "findings_high": 0,
    "copyleft_deps": [
     {
@@ -431,6 +512,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -461,6 +549,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -470,17 +565,16 @@
    "manifest": "snapshot:requirements.txt",
    "ecosystem": "PyPI",
    "total": 39,
-   "resolved": 38,
-   "resolve_rate": 97.4,
+   "resolved": 39,
+   "resolve_rate": 100.0,
    "high_confidence": 33,
    "high_conf_rate": 84.6,
    "categories": {
     "strong-copyleft": 1,
-    "permissive": 35,
-    "unknown": 1,
+    "permissive": 36,
     "weak-copyleft": 2
    },
-   "findings": 2,
+   "findings": 1,
    "findings_high": 1,
    "copyleft_deps": [
     {
@@ -496,9 +590,14 @@
      "spdx": "LGPL-3.0-or-later"
     }
    ],
-   "unresolved": [
-    "Bottleneck"
-   ],
+   "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -508,20 +607,24 @@
    "manifest": "snapshot:requirements.txt",
    "ecosystem": "PyPI",
    "total": 34,
-   "resolved": 33,
-   "resolve_rate": 97.1,
-   "high_confidence": 25,
-   "high_conf_rate": 73.5,
+   "resolved": 34,
+   "resolve_rate": 100.0,
+   "high_confidence": 26,
+   "high_conf_rate": 76.5,
    "categories": {
-    "permissive": 33,
-    "unknown": 1
+    "permissive": 34
    },
-   "findings": 1,
+   "findings": 0,
    "findings_high": 0,
    "copyleft_deps": [],
-   "unresolved": [
-    "zope.interface"
-   ],
+   "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -542,6 +645,13 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -568,6 +678,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -588,6 +705,13 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 91
   },
   {
@@ -614,6 +738,13 @@
     }
    ],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 15
   },
   {
@@ -639,6 +770,13 @@
     "eslint-plugin-react-hooks-published",
     "eslint-plugin-react-internal"
    ],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 3,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -648,26 +786,30 @@
    "manifest": "snapshot:package.json",
    "ecosystem": "npm",
    "total": 52,
-   "resolved": 51,
-   "resolve_rate": 98.1,
+   "resolved": 52,
+   "resolve_rate": 100.0,
    "high_confidence": 52,
    "high_conf_rate": 100.0,
    "categories": {
-    "permissive": 50,
-    "weak-copyleft": 1,
-    "unknown": 1
+    "permissive": 51,
+    "weak-copyleft": 1
    },
-   "findings": 1,
-   "findings_high": 1,
+   "findings": 0,
+   "findings_high": 0,
    "copyleft_deps": [
     {
      "name": "rollup-plugin-dts",
      "spdx": "LGPL-3.0-only"
     }
    ],
-   "unresolved": [
-    "todomvc-app-css"
-   ],
+   "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -688,6 +830,13 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -708,6 +857,13 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   },
   {
@@ -728,6 +884,13 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 2
   },
   {
@@ -748,7 +911,22 @@
    "findings_high": 0,
    "copyleft_deps": [],
    "unresolved": [],
+   "unknown_breakdown": {
+    "NOT_IN_REGISTRY": 0,
+    "NO_METADATA": 0,
+    "UNSUPPORTED_LICENSE": 0,
+    "FETCH_FAILED": 0
+   },
+   "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   }
- ]
+ ],
+ "unknown_breakdown": {
+  "NOT_IN_REGISTRY": 7,
+  "NO_METADATA": 11,
+  "UNSUPPORTED_LICENSE": 1,
+  "FETCH_FAILED": 0
+ },
+ "unknown_tool_fault": 1,
+ "effective_resolve_rate": 99.9
 }

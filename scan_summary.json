@@ -1,5 +1,5 @@
 {
- "tool_version": "0.4.1",
+ "tool_version": "0.4.2",
  "projects_scanned": 26,
  "projects_failed": 0,
  "projects_rate_limited": 0,
@@ -19,6 +19,15 @@
   "strong-copyleft": 9,
   "source-available": 1
  },
+ "unknown_breakdown": {
+  "NOT_IN_REGISTRY": 7,
+  "NO_METADATA": 11,
+  "UNSUPPORTED_LICENSE": 1,
+  "FETCH_FAILED": 0
+ },
+ "unknown_tool_fault": 1,
+ "effective_resolve_rate": 99.9,
+ "note": "本汇总由 recompute_scan.py 用当前判定逻辑离线重算历史数据得到",
  "per_project": [
   {
    "project": "infiniflow/ragflow",
@@ -920,13 +929,5 @@
    "effective_resolve_rate": 100.0,
    "workspace_excluded": 0
   }
- ],
- "unknown_breakdown": {
-  "NOT_IN_REGISTRY": 7,
-  "NO_METADATA": 11,
-  "UNSUPPORTED_LICENSE": 1,
-  "FETCH_FAILED": 0
- },
- "unknown_tool_fault": 1,
- "effective_resolve_rate": 99.9
+ ]
 }

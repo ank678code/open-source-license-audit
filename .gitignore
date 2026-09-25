@@ -21,3 +21,4 @@ scan/
 # Web 服务的临时产物
 _demo.zip
 _check.js
+smoke_report.json

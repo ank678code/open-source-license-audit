@@ -74,6 +74,24 @@ v0.4.2 合并后按同一份检查清单复查，发现 P2-1 当时**只修了�
   被外部检查指出（H1 / L1 / L2 / P2-1），根因是数字硬编码在文档里，改为交给 CI 拦。
 - `pyflakes` 检查列表补上 `recompute_scan.py` 与 `check_docs_consistency.py`。
 
+### 补充修正（同日，第二次自查）
+
+发布后对仓库做了一次健康体检（换行符 / 结尾换行 / 敏感信息 / 外链 / 文档覆盖度），
+处理了三处小问题：
+
+- **README 补上三处 v0.4.2 新行为的说明**：此前只有代码与 CHANGELOG 提到，
+  读 README 的人无从知道——① `-r` 指针清单会被递归跟随；② `--out` 一次产出
+  Markdown + JSON 两份报告，非 `.md` 结尾时 JSON 另存为 `<名字>.json`；
+  ③ Web 上传的三道限额（请求体 20MB / 解压后 200MB / 条目数 2000）。
+- **`.gitignore` 换行符归一化为 CRLF**：上一版编辑引入了 2 行 LF，与文件其余
+  22 行 CRLF 混用，会在后续编辑里持续产生无意义的 diff。
+- **`scan_summary.json` / `scan_summary.md` 补上结尾换行**，并让三个生成脚本
+  （`scan_projects.py` / `rescan_failed.py` / `recompute_scan.py`）固定写出结尾换行，
+  避免 `git diff` 一直提示 `No newline at end of file`。
+
+其余体检项均为通过：39 个跟踪文件与远端 main 逐字节一致、无令牌或私钥、
+32 个文档外链全部有效（模板与本地端点除外）、无遗留 TODO/FIXME。
+
 ### 测试
 
 - `test_cases.py` 224 → **251**（新增 O 组 26 个：入口一致性、输出路径、

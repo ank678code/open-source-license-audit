@@ -245,8 +245,8 @@ def main():
         cls = ", ".join(f"{c['name']}({c['spdx']})" for c in r["copyleft_deps"]) or "—"
         md.append(f"| {r['project']} | {r['license']} | {r['total']} | {r['resolve_rate']}% | "
                   f"{r['high_conf_rate']}% | {r['findings']}({r['findings_high']}) | {cls} |")
-    (SRC / "scan_summary.md").write_text("\n".join(md), encoding="utf-8")
-    SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=1),
+    (SRC / "scan_summary.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    SUMMARY.write_text(json.dumps(summary, ensure_ascii=False, indent=1) + "\n",
                        encoding="utf-8")
     print(f"\n已写出：{SUMMARY} 与 scan_summary.md")
     return summary

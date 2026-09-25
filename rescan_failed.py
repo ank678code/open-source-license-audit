@@ -244,7 +244,7 @@ def main():
     withcl = [r for r in rows if r["copyleft_deps"]]
 
     (HERE / "scan_summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+        json.dumps(summary, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
     md = ["# 真实开源项目批量扫描结果", "",
           f"- 工具版本：**v{VERSION}**",
@@ -274,7 +274,7 @@ def main():
         cls = ", ".join(f"{c['name']}({c['spdx']})" for c in r["copyleft_deps"]) or "—"
         md.append(f"| {r['project']} | {r['license']} | {r['total']} | {r['resolve_rate']}% | "
                   f"{r['high_conf_rate']}% | {r['findings']}({r['findings_high']}) | {cls} |")
-    (HERE / "scan_summary.md").write_text("\n".join(md), encoding="utf-8")
+    (HERE / "scan_summary.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 
     print("\n" + "=" * 62)
     print(f"回填完成：成功 {total_fixed} 条，仍失败 {total_still} 条")

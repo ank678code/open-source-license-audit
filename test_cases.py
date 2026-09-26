@@ -13,7 +13,7 @@ test_cases.py — license_audit 回归测试用例集
 
 import sys
 
-from license_audit import (normalize_license, normalize_single, category_of,
+from license_audit import (normalize_license, category_of,
                            resolve_license_pypi, detect_conflicts,
                            split_workspace_deps)
 
@@ -568,7 +568,7 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
       category_of("MIT OR SomeUnknownThing"), "permissive")
 
 # G35 版本号暴露（报告里要能追溯到工具版本）
-check("G35", "工具版本应为 0.3", VERSION, "0.3")
+check("G35", "工具版本应为 0.4", VERSION, "0.4")
 
 
 # ============================================================ J. monorepo 工作区内部依赖
@@ -610,6 +610,260 @@ check("J7", "混合清单应正确分离且保持原有顺序",
       (["axios", "react"], ["@lobechat/builtin-tools", "@lobechat/types"]))
 
 check("J8", "空清单不应报错", split_workspace_deps([]), ([], []))
+
+
+# ============================================================ K. 许可证知识库扩容（v0.4）
+# 来源：核对报告实测。仓库 LICENSE_DB 只收录 33 种，已造成真实漏判——
+# zope.interface(ZPL-2.1)、arize-phoenix(Elastic-2.0)、
+# todomvc-app-css(CC-BY-4.0) 的源站都给了明确许可证，工具却一律判 UNKNOWN。
+
+from license_audit import (commercial_note, classify_unknown, unknown_breakdown,
+                           effective_resolve_rate, tool_attributable_unknown,
+                           CATEGORY_RANK, UNKNOWN_KINDS)
+
+print("\nK. 许可证知识库扩容（v0.4：非 OSI / 源码可得许可与常见遗漏写法）")
+
+# K1-K10 此前一律落 UNKNOWN 的真实案例
+_K_CASES = [
+    ("K1", "ZPL-2.1", "ZPL-2.1", "permissive"),
+    ("K2", "Elastic-2.0", "Elastic-2.0", "source-available"),
+    ("K3", "CC-BY-4.0", "CC-BY-4.0", "permissive"),
+    ("K4", "CC-BY-SA-4.0", "CC-BY-SA-4.0", "strong-copyleft"),
+    ("K5", "SSPL-1.0", "SSPL-1.0", "network-copyleft"),
+    ("K6", "OFL-1.1", "OFL-1.1", "permissive"),
+    ("K7", "MS-PL", "MS-PL", "permissive"),
+    ("K8", "MS-RL", "MS-RL", "weak-copyleft"),
+    ("K9", "MPL-1.1", "MPL-1.1", "weak-copyleft"),
+    ("K10", "Unicode-DFS-2016", "Unicode-DFS-2016", "permissive"),
+]
+for cid, raw, want_spdx, want_cat in _K_CASES:
+    check(cid, f"{raw} 应被识别且类别为 {want_cat}",
+          (normalize_license(raw), category_of(normalize_license(raw))),
+          (want_spdx, want_cat))
+
+# K11-K14 同源前缀但条款相反的许可证必须区分开。
+# BSL-1.0 是 Boost Software License（宽松），BSL-1.1 是 Business Source
+# License（限制商业使用）。修复前 `BSL[- ]?1` 会把 1.1 一并判成宽松许可。
+check("K11", "BSL-1.1 应判为源码可得（Business Source License）",
+      category_of(normalize_license("BSL-1.1")), "source-available")
+check("K12", "BSL-1.0 应判为宽松（Boost Software License）",
+      category_of(normalize_license("BSL-1.0")), "permissive")
+check("K13", "BUSL-1.1 与 BSL-1.1 同义",
+      normalize_license("BUSL-1.1"), "BSL-1.1")
+check("K14", "裸写 BSL-1 仍应归到 Boost（保持 v0.3 既有行为）",
+      normalize_license("BSL-1"), "BSL-1.0")
+
+# K15-K18 非 OSI 许可识别出来之后，必须能把商业风险说出来
+check("K15", "Elastic-2.0 应给出商业限制提示",
+      "商业" in (commercial_note("Elastic-2.0") or ""), True)
+check("K16", "SSPL-1.0 应提示未获 OSI 认证",
+      "OSI" in (commercial_note("SSPL-1.0") or ""), True)
+check("K17", "MIT 这类普通宽松许可不应产生附加提示",
+      commercial_note("MIT"), None)
+check("K18", "UNKNOWN 不应产生附加提示", commercial_note("UNKNOWN"), None)
+
+# K19-K22 源码可得许可必须能触发风险检出，不能因为"已识别"就静默放过
+check("K19", "MIT 项目引入 Elastic-2.0 应报高危",
+      levels(detect_conflicts("MIT", [mk("phoenix", "Elastic-2.0")]), "phoenix"),
+      ["高"])
+check("K20", "MIT 项目引入 BSL-1.1 应报高危",
+      levels(detect_conflicts("MIT", [mk("busl", "BSL-1.1")]), "busl"), ["高"])
+check("K21", "源码可得许可的风险说明里应点出限制内容",
+      "限制" in "".join(f["reason"] for f in
+                        detect_conflicts("MIT", [mk("p", "Elastic-2.0")])), True)
+check("K22", "复合表达式中源码可得项应按最严格项判定",
+      category_of("MIT AND Elastic-2.0"), "source-available")
+
+# K23 v0.4 新增类别必须能参与排序，且 unknown 仍是最严的
+check("K23", "新增类别后 unknown 仍排在最严位置",
+      CATEGORY_RANK["unknown"] > CATEGORY_RANK["source-available"]
+      > CATEGORY_RANK["network-copyleft"], True)
+
+# K24-K25 离线重算历史扫描数据时实测到的漏判
+#     Bottleneck 的 license 字段只有 "Simplified BSD"，此前落 UNKNOWN
+check("K24", '"Simplified BSD" 应识别为 BSD-2-Clause（Bottleneck 实用写法）',
+      normalize_license("Simplified BSD"), "BSD-2-Clause")
+check("K25", '"FreeBSD" 同为 BSD-2-Clause',
+      normalize_license("FreeBSD"), "BSD-2-Clause")
+
+
+# ============================================================ L. 未识别项归因（v0.4）
+# 来源：核对报告 3.2。此前所有"没认出来"统一记为 UNKNOWN 并计入未识别，
+# 导致 97.8% 这个识别率同时惩罚了「工具无能」和「源站没数据」两种性质，
+# 既不能指导改进也不能对外解释。现在按四种性质分开统计。
+
+print("\nL. 未识别项归因（v0.4：让识别率这个数字可解释）")
+
+check("L1", "源站无此包应归因 NOT_IN_REGISTRY",
+      classify_unknown({"spdx": "UNKNOWN", "status": "NOT_FOUND",
+                        "license_raw": ""}), "NOT_IN_REGISTRY")
+check("L2", "源站有包但没填许可证应归因 NO_METADATA",
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": ""}), "NO_METADATA")
+check("L3", "源站填了但知识库不认应归因 UNSUPPORTED_LICENSE",
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": "SomeWeirdLicense 1.0"}),
+      "UNSUPPORTED_LICENSE")
+check("L4", "网络失败应归因 FETCH_FAILED（重跑即可，不是许可证问题）",
+      classify_unknown({"spdx": "UNKNOWN", "status": "FETCH_ERROR",
+                        "license_raw": ""}), "FETCH_FAILED")
+check("L5", "已识别的记录不应有归因",
+      classify_unknown({"spdx": "MIT", "status": "OK", "license_raw": "MIT"}), None)
+
+_L_RECS = [
+    {"spdx": "MIT", "status": "OK", "license_raw": "MIT"},
+    {"spdx": "UNKNOWN", "status": "NOT_FOUND", "license_raw": ""},
+    {"spdx": "UNKNOWN", "status": "OK", "license_raw": ""},
+    {"spdx": "UNKNOWN", "status": "OK", "license_raw": "ZPL-9.9"},
+]
+check("L6", "四分类计数应正确", unknown_breakdown(_L_RECS),
+      {"NOT_IN_REGISTRY": 1, "NO_METADATA": 1,
+       "UNSUPPORTED_LICENSE": 1, "FETCH_FAILED": 0})
+check("L7", "只有知识库未收录一类归因于工具自身",
+      tool_attributable_unknown(_L_RECS), 1)
+check("L8", "剔除源站无数据后的识别率应高于原始识别率",
+      effective_resolve_rate(_L_RECS) > 100.0 * 1 / 4, True)
+check("L9", "归因类别应全部有中文名与处理建议",
+      all(k in UNKNOWN_KINDS for k in unknown_breakdown(_L_RECS)), True)
+check("L10", "空记录集不应报错", unknown_breakdown([]),
+      {k: 0 for k in UNKNOWN_KINDS})
+
+# L11-L12 归因要真正影响给使用者的建议，而不只是统计数字
+_f = detect_conflicts("MIT", [{"name": "ghost", "source": "PyPI", "version": "?",
+                               "license_raw": "", "spdx": "UNKNOWN",
+                               "license_field": "无", "confidence": "无",
+                               "deps": [], "status": "NOT_FOUND"}])
+check("L11", "源站无此包的处理建议应指向核对包名，而不是泛泛的人工核对",
+      "私有包" in "".join(x["advice"] for x in _f), True)
+_f = detect_conflicts("MIT", [{"name": "weird", "source": "PyPI", "version": "1.0",
+                               "license_raw": "ZPL-9.9", "spdx": "UNKNOWN",
+                               "license_field": "license_expression",
+                               "confidence": "高", "deps": [], "status": "OK"}])
+check("L12", "知识库未收录的处理建议应指向补充知识库",
+      "知识库" in "".join(x["advice"] for x in _f), True)
+
+# L13-L16 占位值不算"工具的问题"
+#   离线重算历史扫描数据时发现：rouge 的 license 字段就是字面量 "LICENCE.txt"。
+#   它不是"知识库没收录的写法"，而是"源站压根没给许可证信息"。
+#   若归到 UNSUPPORTED_LICENSE，会把源站的问题算到工具头上，
+#   让"应由工具改进"这个指标虚高，反而失去指导意义。
+from license_audit import is_placeholder_license
+check("L13", '文件名占位值 "LICENCE.txt" 应归因 NO_METADATA 而非知识库未收录',
+      classify_unknown({"spdx": "UNKNOWN", "status": "OK",
+                        "license_raw": "LICENCE.txt"}), "NO_METADATA")
+check("L14", "占位词与文件名都应被判为占位",
+      [is_placeholder_license(v) for v in
+       ("", "LICENCE.txt", "LICENSE", "see license", "Copying", "N/A", "unknown")],
+      [True] * 7)
+check("L15", "真实许可证写法不能被误判为占位",
+      [is_placeholder_license(v) for v in
+       ("ZPL-9.9", "NVIDIA LICENSE AGREEMENT This NVIDIA License Agreement ...")],
+      [False, False])
+check("L16", "占位值的处理建议应指向人工核对上游 LICENSE 文件",
+      "LICENSE 文件" in "".join(x["advice"] for x in detect_conflicts(
+          "MIT", [{"name": "rouge", "source": "PyPI", "version": "1.0",
+                   "license_raw": "LICENCE.txt", "spdx": "UNKNOWN",
+                   "license_field": "license 截断(低可信)", "confidence": "低",
+                   "deps": [], "status": "OK"}])), True)
+
+
+# ============================================================ M. 跨 Python 版本一致性（v0.4）
+# 来源：CI。补回 split_workspace_deps 之后测试终于能跑起来，第一次全矩阵执行
+# 就暴露出两个此前被 ImportError 掩盖的既有缺陷：
+#   · Windows 三个 job：控制台默认 cp1252，打印中文直接 UnicodeEncodeError
+#   · Python 3.8 三个 job：无 tomllib（3.11 才进标准库），pyproject 走正则降级，
+#     丢版本约束、还把 `name = "demo"` 当成包名（C1/C3/E13）
+# 这两个都不是本轮引入的，但既然暴露了就一并修掉。
+
+from license_audit import (_toml_loads, _pyproject_deps, _force_utf8_stdio,
+                           parse_pyproject_verbose)
+
+print("\nM. 跨 Python 版本一致性（v0.4：Windows 编码 / 无 tomllib 降级）")
+
+_M_CASES = {
+    "pep621": """
+[project]
+name = "demo"
+dependencies = [
+  "requests>=2.31.0",
+  "pandas",
+  "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff"]
+""",
+    "poetry": """
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = "^3.0"
+mysqlclient = "*"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.0"
+""",
+    "pep735": """
+[dependency-groups]
+test = ["pytest", "coverage"]
+docs = ["mkdocs"]
+""",
+    # 内联表与行尾注释是真实 pyproject.toml 里最常见的两种写法
+    "inline": """
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = { version = "^3.0", optional = true }   # 内联表
+requests = ">=2.0"   # 行尾注释带 # 号
+""",
+}
+
+# 期望结果（由高版本 tomllib 实测产出，作为无 tomllib 时的对照基准）
+_M_EXPECT = {
+    "pep621": [("pandas", ""), ("pymupdf", ">=1.24"), ("pytest", ">=7"),
+               ("requests", ">=2.31.0"), ("ruff", "")],
+    "poetry": [("black", "^24.0"), ("flask", "^3.0"), ("mysqlclient", "*")],
+    "pep735": [("coverage", ""), ("mkdocs", ""), ("pytest", "")],
+    "inline": [("flask", "^3.0"), ("requests", ">=2.0")],
+}
+
+# M1-M4 内置解析器必须与 tomllib 给出完全一致的结果，
+# 否则同一份 pyproject.toml 在不同 Python 版本上会得到不同结论。
+# 注意：tomllib 是 3.11 才有的，这里必须兼容 3.8——否则整个测试文件
+# 在 3.8 上会因 import 失败而崩掉，正是我们要避免的那类问题。
+try:
+    import tomllib as _tomllib
+except ImportError:                      # Python < 3.11
+    _tomllib = None
+
+for _i, (_name, _txt) in enumerate(_M_CASES.items(), start=1):
+    if _tomllib is not None:
+        check(f"M{_i}", f"内置 TOML 解析应与 tomllib 一致（{_name}）",
+              _pyproject_deps(_toml_loads(_txt)),
+              _pyproject_deps(_tomllib.loads(_txt)))
+    else:
+        # 无 tomllib 时（Python < 3.11）仍必须与高版本结论一致，
+        # 基准值取自上表，同样是 tomllib 实测产出。
+        check(f"M{_i}", f"无 tomllib 时内置解析应与基准一致（{_name}）",
+              _pyproject_deps(_toml_loads(_txt)), _M_EXPECT[_name])
+
+# M5 必须保留版本约束——旧正则降级全部返回空串，导致按锁定版本查询失效
+check("M5", "无 tomllib 时 Poetry 版本约束仍应保留",
+      _pyproject_deps(_toml_loads(_M_CASES["poetry"])),
+      [("black", "^24.0"), ("flask", "^3.0"), ("mysqlclient", "*")])
+
+# M6 不能把 `name = "demo"` 这类非依赖键当包名（旧降级会误收 "name"）
+check("M6", "解析结果不应混入非依赖键",
+      "name" in [n for n, _s in _pyproject_deps(_toml_loads(_M_CASES["pep621"]))],
+      False)
+
+# M7 注释里的 # 号不应被当成值的一部分
+check("M7", "行尾注释应被正确剥离",
+      dict(_pyproject_deps(_toml_loads(_M_CASES["inline"])))["requests"], ">=2.0")
+
+# M8-M9 UTF-8 输出守卫
+check("M8", "应提供强制 UTF-8 输出的守卫函数", callable(_force_utf8_stdio), True)
+check("M9", "守卫执行后 stdout 编码应为 UTF-8（Windows 控制台不再崩）",
+      (getattr(sys.stdout, "encoding", "") or "").lower().replace("-", ""),
+      "utf8")
 
 
 # ============================================================ 汇总

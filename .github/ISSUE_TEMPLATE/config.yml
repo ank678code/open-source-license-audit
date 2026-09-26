@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题 / 怎么用
+    url: https://github.com/ank678code/open-source-license-audit/blob/main/README.md
+    about: 先读 README 的「快速开始」与「已知限制」，多数问题那里有答案。
+  - name: 想参与开发
+    url: https://github.com/ank678code/open-source-license-audit/blob/main/CONTRIBUTING.md
+    about: 贡献指南：环境搭建、四类常见贡献、提交规范、PR 流程。
+  - name: 安全漏洞报告
+    url: https://github.com/ank678code/open-source-license-audit/blob/main/SECURITY.md
+    about: 请不要在公开 Issue 里报告安全漏洞。

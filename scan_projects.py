@@ -47,7 +47,9 @@ sys.path.insert(0, str(HERE))
 
 from license_audit import (parse_requirements, parse_pyproject,
                            parse_package_json, parse_package_json_verbose,
-                           split_workspace_deps, category_of, VERSION)
+                           split_workspace_deps, category_of, VERSION,
+                           unknown_breakdown, effective_resolve_rate,
+                           UNKNOWN_KINDS)
 
 SCAN = HERE / "scan"
 
@@ -279,6 +281,16 @@ def main():
             elif js_snap.exists():
                 best_pkgs, workspace_deps = split_workspace_deps(
                     parse_package_json_verbose(js_snap))
+                # 快照里的 _workspace_excluded 记录的是扫描时排除的内部包数。
+                # 快照本身只存外部依赖，所以 split 结果通常为空——此处以
+                # 落盘值为准，保证 --offline 重算与联网扫描统计一致。
+                try:
+                    snap_meta = json.loads(js_snap.read_text(encoding="utf-8"))
+                    recorded = int(snap_meta.get("_workspace_excluded") or 0)
+                except Exception:
+                    recorded = 0
+                if not workspace_deps and recorded:
+                    workspace_deps = [None] * recorded
                 best_path, is_npm = "snapshot:package.json", True
             if not best_pkgs:
                 print("  离线模式下未找到该项目的依赖清单快照，跳过")
@@ -323,8 +335,11 @@ def main():
 
         if is_npm:
             mf = SCAN / f"{owner}__{repo}.package.json"
+            # 额外记录被排除的工作区内部包数量：快照只存"外部依赖"（pkgs），
+            # 若不落盘，--offline 重算时就无法还原 workspace_excluded 这项统计。
             mf.write_text(json.dumps({"name": repo, "version": "0.0.0",
-                                      "dependencies": {p: "*" for p in pkgs}},
+                                      "dependencies": {p: "*" for p in pkgs},
+                                      "_workspace_excluded": len(workspace_deps)},
                                      ensure_ascii=False, indent=1), encoding="utf-8")
             flag = "--package-json"
         else:
@@ -365,6 +380,9 @@ def main():
             "findings_high": len(hi), "copyleft_deps": cl,
             "unresolved": [r["name"] for r in recs if r["spdx"] == "UNKNOWN"],
             "workspace_excluded": len(workspace_deps),
+            # v0.4：未识别不再是笼统一个数，而是按性质拆开
+            "unknown_breakdown": unknown_breakdown(recs),
+            "effective_resolve_rate": effective_resolve_rate(recs),
         }
         results.append(row)
         print(f"  识别率 {row['resolve_rate']}%　高可信 {row['high_conf_rate']}%　"
@@ -379,10 +397,20 @@ def main():
     tf = sum(r["findings"] for r in ok)
     tfh = sum(r["findings_high"] for r in ok)
     withcl = [r for r in ok if r["copyleft_deps"]]
+    ws_excluded = sum(r.get("workspace_excluded", 0) for r in ok)
     cats = Counter()
     for r in ok:
         for k, v in r["categories"].items():
             cats[k] += v
+
+    # v0.4：全量未识别项归因。此前 97.8% 这个数字混装了三种性质，
+    # 既不能指导改进也不能对外解释；拆开后才知道该补知识库还是去人工核对。
+    ukb = Counter()
+    for r in ok:
+        for k, v in (r.get("unknown_breakdown") or {}).items():
+            ukb[k] += v
+    ukb = {k: ukb.get(k, 0) for k in UNKNOWN_KINDS}
+    tool_fault = ukb.get("UNSUPPORTED_LICENSE", 0)
 
     summary = {
         "tool_version": VERSION,
@@ -394,7 +422,12 @@ def main():
         "overall_high_conf_rate": round(100.0 * thc / td, 1) if td else 0.0,
         "findings": tf, "findings_high": tfh,
         "projects_with_copyleft": len(withcl),
+        "workspace_excluded": ws_excluded,
         "category_distribution": dict(cats), "per_project": results,
+        "unknown_breakdown": ukb,
+        "unknown_tool_fault": tool_fault,
+        "effective_resolve_rate": round(
+            100.0 * (td - tool_fault - ukb.get("FETCH_FAILED", 0)) / td, 1) if td else 0.0,
     }
     (HERE / "scan_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -406,7 +439,22 @@ def main():
           f"- 许可证识别率：**{summary['overall_resolve_rate']}%**（{tr}/{td}）",
           f"- 高可信度判定占比：**{summary['overall_high_conf_rate']}%**（{thc}/{td}）",
           f"- 检出风险项：**{tf}** 条（其中高危 {tfh} 条）",
-          f"- 含传染性依赖的项目：**{len(withcl)}/{len(ok)}**", ""]
+          f"- 含传染性依赖的项目：**{len(withcl)}/{len(ok)}**"]
+    if ws_excluded:
+        md.append(f"- 排除的 monorepo 工作区内部包：**{ws_excluded}** 个"
+                  "（`workspace:` 标记，不发布到 registry，不参与审计）")
+    if sum(ukb.values()):
+        md += ["", "### 未识别项归因（v0.4）", "",
+               f"- 未识别合计：**{sum(ukb.values())}** 条",
+               f"- 源站无此包：**{ukb.get('NOT_IN_REGISTRY', 0)}** 条（工具无能为力）",
+               f"- 源站未填许可证：**{ukb.get('NO_METADATA', 0)}** 条（须人工核对上游仓库）",
+               f"- 知识库未收录该写法：**{tool_fault}** 条（**应由工具改进**，补进 LICENSE_DB 即可降低）",
+               f"- 网络获取失败：**{ukb.get('FETCH_FAILED', 0)}** 条（重跑即可）",
+               "",
+               f"> 原始识别率 {summary['overall_resolve_rate']}% 把上述四种性质混在一起统计；"
+               f"剔除「源站客观无数据」后为 **{summary['effective_resolve_rate']}%**。"
+               "两者并列展示，才能让识别率这个数字站得住。"]
+    md.append("")
     if rate_limited:
         md += [f"> ⚠ 有 {rate_limited} 个项目因 GitHub API 配额用尽未扫描"
                "（不是「项目没有依赖清单」）。设置 `GITHUB_TOKEN` 后重跑，"

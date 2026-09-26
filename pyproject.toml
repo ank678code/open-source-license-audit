@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-source-license-audit"
-version = "0.4.1"
+version = "0.4.2"
 description = "开源许可证合规检查 + 《开源及第三方资源使用清单》生成器"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -27,14 +27,15 @@ license-audit-semantic = "semantic_audit:main"
 license-audit-rescan = "rescan_failed:main"
 license-audit-verify = "verify_sample:main"
 license-audit-web = "web.server:main"
+license-audit-recompute = "recompute_scan:main"
 
-# v0.5 修正（审查报告 L3「打包不完整」）：
+# v0.4.1 修正（审查报告 L3「打包不完整」）：
 # 此前只打包 license_audit / semantic_audit 两个模块，批量扫描脚本、
 # 抽查脚本与 Web 界面都没有分发入口，安装后拿不到，与 README 的
 # 使用说明对不上。
 [tool.setuptools]
 py-modules = ["license_audit", "semantic_audit", "scan_projects",
-              "rescan_failed", "verify_sample"]
+              "rescan_failed", "verify_sample", "recompute_scan"]
 packages = ["web"]
 
 [tool.setuptools.package-data]

@@ -403,6 +403,71 @@ for cid, pkg, want in [("I12", "scikit-image", "skimage"),
     check(cid, f"{pkg} 应映射到 {want}", want in import_names(pkg), True)
 
 
+# ============================================================ J. 依赖归属精确匹配（v0.4.2）
+# 来源：第三方检查清单 P3-1。原实现用"包名小写是否出现在清单文本里"判断依赖归属，
+# 于是 torch 会被 torchvision 命中、pytest 会被 pytest-cov 命中——而这份证据是要
+# 喂给模型做合规判断的，命中错等于把结论带偏。
+
+import tempfile as _J_tf
+
+_J_ROOT = Path(_J_tf.mkdtemp())
+
+
+def _J_proj(name, files):
+    d = _J_ROOT / name
+    d.mkdir(parents=True, exist_ok=True)
+    for fn, text in files.items():
+        f = d / fn
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8")
+    return d
+
+
+_J_LIST = _J_proj("listonly", {
+    "requirements.txt": "torchvision==0.15.0\n",
+    "app.py": "import torch\n",
+})
+check("J1", "清单只有 torchvision 时，torch 不应被判为已声明",
+      collect_evidence(_J_LIST, "torch")["in_requirements"], False)
+check("J2", "torchvision 自身应被判为已声明（同一目录）",
+      collect_evidence(_J_LIST, "torchvision")["in_requirements"], True)
+
+_J_COV = _J_proj("pytestcov", {"requirements.txt": "pytest-cov==4.0.0\n"})
+check("J3", "清单只有 pytest-cov 时，pytest 不应被判为已声明",
+      collect_evidence(_J_COV, "pytest")["in_requirements"], False)
+
+_J_SEP = _J_proj("sep", {"requirements.txt": "python_levenshtein==0.21\n"})
+check("J4", "下划线/连字符/大小写差异应视为同一个包（PEP 503 归一化）",
+      collect_evidence(_J_SEP, "python-Levenshtein")["in_requirements"], True)
+
+check("J5", "证据里应记录命中的清单文件名，便于人工复核",
+      collect_evidence(_J_LIST, "torchvision")["requirements_manifests"],
+      ["requirements.txt"])
+
+_J_PEP = _J_proj("pep621", {
+    "pyproject.toml": '[project]\nname = "demo"\ndependencies = ["requests>=2.31",'
+                      ' "numpy"]\n'})
+check("J6", "pyproject.toml 里的依赖应精确命中（且未列出的不应命中）",
+      [collect_evidence(_J_PEP, "requests")["in_requirements"],
+       collect_evidence(_J_PEP, "request")["in_requirements"]],
+      [True, False])
+
+_J_NPM = _J_proj("npm", {"package.json": '{"dependencies":{"left-pad":"^1.3.0"}}'})
+check("J7", "package.json 里的依赖应精确命中",
+      [collect_evidence(_J_NPM, "left-pad")["in_requirements"],
+       collect_evidence(_J_NPM, "left")["in_requirements"]],
+      [True, False])
+
+_J_SETUP = _J_proj("setuppy", {
+    "setup.py": 'from setuptools import setup\nsetup(\n    name="demo",\n'
+                '    install_requires=[\n        "scipy>=1.10",\n        "six",\n'
+                '    ],\n)\n'})
+check("J8", "setup.py 的 install_requires 应精确抽取（前缀相同不误命中）",
+      [collect_evidence(_J_SETUP, "scipy")["in_requirements"],
+       collect_evidence(_J_SETUP, "sci")["in_requirements"]],
+      [True, False])
+
+
 # ============================================================ 汇总
 
 print("\n" + "=" * 62)

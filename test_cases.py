@@ -580,7 +580,7 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
 # G35 版本号暴露（报告里要能追溯到工具版本）
 # v0.4.1：与 pyproject.toml 的 version 统一——此前代码写 "0.4"、
 # pyproject 写 "0.3.0"、CHANGELOG 写 "0.4.0"，三处互不相同（审查报告 L1）。
-check("G35", "工具版本应为 0.4.1", VERSION, "0.4.1")
+check("G35", "工具版本应为 0.4.2", VERSION, "0.4.2")
 
 
 # ============================================================ J. monorepo 工作区内部依赖
@@ -971,17 +971,26 @@ if _N_OK:
     _N_ROOT = _Path(_tf.mkdtemp())
 
     (_N_ROOT / "requirements.txt").write_text(f"-r {_N_SECRET.as_posix()}\n", encoding="utf-8")
-    _, _N_PKGS, _, _ = _ws.detect_and_parse(_N_ROOT)
+    _, _N_PKGS, _, _, _ = _ws.detect_and_parse(_N_ROOT)
     check("N19", "-r 后接绝对路径指向解压目录外应被拒绝", _N_PKGS, [])
 
     (_N_ROOT / "requirements.txt").write_text("-r ../../secret.txt\n", encoding="utf-8")
-    _, _N_PKGS, _, _ = _ws.detect_and_parse(_N_ROOT)
+    _, _N_PKGS, _, _, _ = _ws.detect_and_parse(_N_ROOT)
     check("N20", "-r 后接 ../ 越界引用应被拒绝", _N_PKGS, [])
 
     (_N_ROOT / "base.txt").write_text("numpy==1.26.0\n", encoding="utf-8")
     (_N_ROOT / "requirements.txt").write_text("-r base.txt\n", encoding="utf-8")
-    _, _N_PKGS, _, _ = _ws.detect_and_parse(_N_ROOT)
+    _, _N_PKGS, _, _, _ = _ws.detect_and_parse(_N_ROOT)
     check("N21", "解压目录内的合法 -r 引用应正常跟随", _N_PKGS, ["numpy"])
+
+    (_N_ROOT / "package.json").write_text(
+        '{"dependencies":{"express":"^4.18.0","@acme/ui":"workspace:^"}}',
+        encoding="utf-8")
+    _N_RM = (_N_ROOT / "requirements.txt")
+    _N_RM.unlink()
+    _, _N_NPM, _, _, _N_WS = _ws.detect_and_parse(_N_ROOT)
+    check("N21b", "Web 入口应从 npm 清单中排除 workspace 内部包",
+          (_N_NPM, _N_WS), (["express"], ["@acme/ui"]))
 else:
     check("N19", "-r 路径围栏（web 模块不可导入，跳过）", "skipped", "skipped")
     check("N20", "-r 路径围栏（web 模块不可导入，跳过）", "skipped", "skipped")
@@ -1032,7 +1041,234 @@ except Exception as _e:                                  # pragma: no cover
         check(_cid, f"打包配置自检（异常跳过：{type(_e).__name__}）", "skipped", "skipped")
 
 
+# ============================================================ O. 检查清单问题修复（v0.4.2）
+# 来源：第三方《仓库问题检查清单》，11 项逐条复现后确认成立。
+#   P1-1 CLI/Web 入口未排除 monorepo 工作区内部包
+#   P1-2 --out 不含 .md 时 JSON 报告覆盖 Markdown 报告
+#   P2-3 rescan_failed.py 重建汇总时丢失字段
+#   P3-1 证据采集的依赖归属使用子串匹配
+#   P3-2 Web 端解压缺少规模限制、非法 kind 返回 500
+#   P3-3 抽查脚本保留不可达的宽容分支
+#   P3-4 CLI 不跟随 -r 指针清单
+#   P2-2 代码注释里出现高于发布版本的版本标注
+
+import re
+from license_audit import (report_paths, path_within, parse_requirements_verbose,
+                           parse_package_json_verbose, collect_requirement_files,
+                           MAX_INCLUDE_DEPTH)
+
+print("\nO. 检查清单问题修复（v0.4.2：输出路径 / -r 跟随 / 入口一致 / 解压限制）")
+
+_O_ROOT = _Path(_tf.mkdtemp())
+
+# ---- O1-O4 输出路径：两条路径必定不同（P1-2 的核心）----
+check("O1", "--out 为 .md 时应换成同名 .json",
+      [p.as_posix() for p in report_paths("reports/license.md")],
+      ["reports/license.md", "reports/license.json"])
+check("O2", "--out 不含 .md 时 JSON 应追加后缀而非覆盖同名文件",
+      [p.as_posix() for p in report_paths("out.txt")], ["out.txt", "out.txt.json"])
+check("O3", "--out 无扩展名时同样不覆盖",
+      [p.as_posix() for p in report_paths("out")], ["out", "out.json"])
+_O_SAME = [s for s in ("a.md", "a.txt", "a", "a.MD", "a.md.json")
+           if report_paths(s)[0] == report_paths(s)[1]]
+check("O4", "任何 --out 取值下 Markdown 与 JSON 路径都不相同", _O_SAME, [])
+
+# ---- O5-O10 -r 指针清单的跟随（P3-4）----
+_O_REQ = _O_ROOT / "req"
+_O_REQ.mkdir(parents=True, exist_ok=True)
+(_O_REQ / "runtime.txt").write_text("flask==2.0.0\nrequests>=2.31\n", encoding="utf-8")
+(_O_REQ / "requirements.txt").write_text("-r runtime.txt\npandas==2.0.0\n", encoding="utf-8")
+_O_PAIRS = parse_requirements_verbose(_O_REQ / "requirements.txt")
+check("O5", "-r 指针文件应被跟随，且自身依赖与引用依赖都保留",
+      [n for n, _ in _O_PAIRS], ["pandas", "flask", "requests"])
+
+_O_NOTES = []
+parse_requirements_verbose(_O_REQ / "requirements.txt", notes=_O_NOTES)
+check("O6", "跟随 -r 引用时应给出可读提示（不静默少解析）",
+      any("跟随" in n for n in _O_NOTES), True)
+
+(_O_REQ / "deep2.txt").write_text("-r runtime.txt\ndjango==4.2\n", encoding="utf-8")
+(_O_REQ / "deep1.txt").write_text("-r deep2.txt\npytest==7.4\n", encoding="utf-8")
+(_O_REQ / "chain.txt").write_text("-r deep1.txt\n", encoding="utf-8")
+check("O7", "递归跟随两层引用（按引用顺序深度优先展开，逐个文件收集依赖）",
+      [n for n, _ in parse_requirements_verbose(_O_REQ / "chain.txt")],
+      ["pytest", "django", "flask", "requests"])
+
+(_O_REQ / "a.txt").write_text("-r b.txt\nalpha\n", encoding="utf-8")
+(_O_REQ / "b.txt").write_text("-r a.txt\nbeta\n", encoding="utf-8")
+check("O8", "互相引用形成环路时不死循环",
+      sorted(n for n, _ in parse_requirements_verbose(_O_REQ / "a.txt")),
+      ["alpha", "beta"])
+
+_O_DEEP = _O_REQ / "deep"
+_O_DEEP.mkdir(exist_ok=True)
+for _i in range(MAX_INCLUDE_DEPTH + 2):
+    _nxt = ("-r d%d.txt\n" % (_i + 1)) if _i < MAX_INCLUDE_DEPTH + 1 else ""
+    (_O_DEEP / ("d%d.txt" % _i)).write_text(_nxt + "pkg%d\n" % _i, encoding="utf-8")
+_O_FILES, _ = collect_requirement_files(_O_DEEP / "d0.txt")
+check("O9", "引用链超过深度上限时停止跟随（不无限展开）",
+      len(_O_FILES) <= MAX_INCLUDE_DEPTH + 1, True)
+
+_O_UNSAFE = []
+parse_requirements_verbose(_O_REQ / "requirements.txt", notes=_O_UNSAFE)
+check("O10", "清单自身依赖解析不受 -r 跟随影响（版本约束仍保留）",
+      dict(_O_PAIRS).get("flask"), "==2.0.0")
+
+# ---- O11-O13 路径围栏（CLI 与 Web 共用同一实现）----
+check("O11", "围栏应放行目录内的引用",
+      path_within(_O_REQ, _O_REQ / "runtime.txt"), True)
+check("O12", "围栏应拒绝 ../ 越界引用",
+      path_within(_O_REQ, _O_REQ / ".." / "outside.txt"), False)
+check("O13", "围栏应拒绝绝对路径（含存在与不存在的文件）",
+      [path_within(_O_REQ, _Path(_O_REQ.anchor or "/") / "etc" / "passwd"),
+       path_within(_O_REQ, _O_REQ)], [False, True])
+
+# ---- O14-O16 三个入口的 workspace 排除保持一致（P1-1）----
+_O_PJ = _O_ROOT / "package.json"
+_O_PJ.write_text(
+    '{"name":"demo","dependencies":{"express":"^4.18.0",'
+    '"@myorg/internal-tool":"workspace:*","@vercel/og":"^0.6.0"}}', encoding="utf-8")
+check("O14", "CLI 解析 package.json 时应排除 workspace: 内部包（保留真实第三方包）",
+      split_workspace_deps(parse_package_json_verbose(_O_PJ)),
+      (["@vercel/og", "express"], ["@myorg/internal-tool"]))
+
+_O_SRC = (_Path(__file__).with_name("license_audit.py")).read_text(encoding="utf-8")
+_O_BRANCH = _O_SRC[_O_SRC.index("elif a.package_json:"):]
+_O_BRANCH = _O_BRANCH[:_O_BRANCH.index("elif a.packages:")]
+check("O15", "CLI 的 --package-json 分支必须做工作区排除（且保留版本约束）",
+      "exclude_workspace_deps(" in _O_BRANCH, True)
+
+try:
+    import web.server as _O_WS
+    _O_WS_OK = True
+except Exception:
+    _O_WS_OK = False
+
+if _O_WS_OK:
+    _O_NPM = _O_ROOT / "npmproj"
+    _O_NPM.mkdir(exist_ok=True)
+    (_O_NPM / "package.json").write_text(
+        _O_PJ.read_text(encoding="utf-8"), encoding="utf-8")
+    _O_REL, _O_PKGS, _O_SRCNAME, _O_SPECS, _O_WS_DEPS = _O_WS.detect_and_parse(_O_NPM)
+    check("O16", "Web 入口解析 npm 项目时也应排除内部包并报出排除列表",
+          (_O_WS_DEPS, sorted(_O_PKGS)),
+          (["@myorg/internal-tool"], ["@vercel/og", "express"]))
+else:
+    check("O16", "Web 入口 workspace 排除（web 模块不可导入，跳过）", "skipped", "skipped")
+
+# ---- O17-O20 Web 端解压限制与参数校验（P3-2）----
+if _O_WS_OK:
+    check("O17", "合法清单类型应映射到对应扩展名",
+          [_O_WS.manifest_ext("requirements"), _O_WS.manifest_ext("package-json")],
+          [".txt", ".json"])
+
+    _O_KIND_ERR = None
+    try:
+        _O_WS.manifest_ext("bogus")
+    except ValueError as e:
+        _O_KIND_ERR = "bogus" in str(e)
+    check("O18", "非法清单类型应抛 ValueError（由处理层回 400 而非 500）",
+          _O_KIND_ERR, True)
+
+    import io as _io
+    import zipfile as _zf
+
+    _O_BUF = _io.BytesIO()
+    with _zf.ZipFile(_O_BUF, "w") as _z:
+        _z.writestr("a.txt", "x" * 100)
+        _z.writestr("b.txt", "y" * 100)
+    _O_ZIP = _O_BUF.getvalue()
+
+    _O_SAVED_ENT = _O_WS.MAX_UNZIP_ENTRIES
+    _O_WS.MAX_UNZIP_ENTRIES = 1
+    _O_ENT_ERR = None
+    try:
+        _O_WS.safe_extract(_zf.ZipFile(_io.BytesIO(_O_ZIP)), _O_ROOT / "x1")
+    except ValueError as e:
+        _O_ENT_ERR = "条目数" in str(e)
+    _O_WS.MAX_UNZIP_ENTRIES = _O_SAVED_ENT
+    check("O19", "解压条目数超上限应被拒绝", _O_ENT_ERR, True)
+
+    _O_SAVED_BYTES = _O_WS.MAX_UNZIP_BYTES
+    _O_WS.MAX_UNZIP_BYTES = 50
+    _O_BYTES_ERR = None
+    try:
+        _O_WS.safe_extract(_zf.ZipFile(_io.BytesIO(_O_ZIP)), _O_ROOT / "x2")
+    except ValueError as e:
+        _O_BYTES_ERR = "过大" in str(e)
+    _O_WS.MAX_UNZIP_BYTES = _O_SAVED_BYTES
+    check("O20", "解压后总大小超上限应被拒绝", _O_BYTES_ERR, True)
+else:
+    for _cid in ("O17", "O18", "O19", "O20"):
+        check(_cid, "Web 端解压限制（web 模块不可导入，跳过）", "skipped", "skipped")
+
+# ---- O21-O23 rescan_failed 汇总结构对齐（P2-3）----
+import rescan_failed as _rf
+
+_O_REPORT = {
+    "project": "o/rg", "project_license": "MIT",
+    "records": [
+        {"name": "flask", "source": "PyPI", "version": "2.0", "license_raw": "BSD-3-Clause",
+         "spdx": "BSD-3-Clause", "license_field": "license", "confidence": "高",
+         "deps": [], "status": "OK", "unknown_kind": None},
+        {"name": "ghost", "source": "PyPI", "version": "?", "license_raw": "",
+         "spdx": "UNKNOWN", "license_field": "无", "confidence": "无",
+         "deps": [], "status": "NOT_FOUND", "unknown_kind": "NOT_IN_REGISTRY"},
+        {"name": "weird", "source": "PyPI", "version": "1", "license_raw": "Foo-1.0",
+         "spdx": "UNKNOWN", "license_field": "license", "confidence": "高",
+         "deps": [], "status": "OK", "unknown_kind": "UNSUPPORTED_LICENSE"},
+    ],
+    "findings": [],
+}
+_O_ROW = _rf.build_row(_O_REPORT, {"project": "o/rg", "manifest": "requirements.txt",
+                                   "ecosystem": "PyPI", "workspace_excluded": 3})
+check("O21", "重扫后的项目行应保留 ecosystem / manifest / workspace_excluded",
+      [_O_ROW["ecosystem"], _O_ROW["manifest"], _O_ROW["workspace_excluded"]],
+      ["PyPI", "requirements.txt", 3])
+check("O22", "重扫后的项目行应含未识别归因与有效识别率",
+      [_O_ROW["unknown_breakdown"]["NOT_IN_REGISTRY"],
+       _O_ROW["unknown_breakdown"]["UNSUPPORTED_LICENSE"]],
+      [1, 1])
+
+_O_SUM = _rf.build_summary([_O_ROW], {"projects_rate_limited": 2,
+                                      "projects_failed": 1})
+check("O23", "汇总应补齐 v0.4 新增字段并沿用既有计数",
+      [_O_SUM["unknown_tool_fault"], _O_SUM["effective_resolve_rate"],
+       _O_SUM["workspace_excluded"], _O_SUM["projects_rate_limited"],
+       _O_SUM["projects_failed"]],
+      [1, 66.7, 3, 2, 1])
+
+# ---- O24-O25 抽查口径不再宽容 UNKNOWN（P3-3）----
+check("O24", "工具判 UNKNOWN 而源站有值时，宽口径也不得计为一致",
+      loose_match("UNKNOWN", ["MIT"]), False)
+check("O25", "宽口径本身仍然有效（别名/家族写法仍应判为一致）",
+      loose_match("BSD-3-Clause", ["BSD License"]), True)
+
+# ---- O26 版本标注守护（P2-2 防复发）----
+# 上一轮的修复注释被标成了高于当时发布版本的版本号，而 CHANGELOG 里并没有
+# 那个版本，版本追溯直接失效。这里守护"变更标注不得指向比 VERSION 更新的版本"。
+# 只匹配"变更标注"形态（vX.Y[.Z] 紧跟 修正/新增/起/修订/补/更新/交付/发布），
+# 以免把版本约束示例（"v1.2.3" 前缀）与许可证正文（"GPL v2.0"）误判成标注。
+def _ver_tuple(s):
+    return tuple(int(x) for x in s.split("."))
+
+_O_CUR = _ver_tuple(VERSION)
+_O_ANNOT = re.compile(
+    r"v(\d+(?:\.\d+)+)(?=\s*(?:修正|新增|起|修订|补|更新|交付|发布|更名))")
+_O_AHEAD = []
+for _f in sorted((_Path(__file__).parent).glob("*.py")) + \
+        [_Path(__file__).with_name("pyproject.toml")]:
+    _txt = _f.read_text(encoding="utf-8", errors="replace")
+    for _m in _O_ANNOT.finditer(_txt):
+        if _ver_tuple(_m.group(1)) > _O_CUR:
+            _O_AHEAD.append(f"{_f.name}:v{_m.group(1)}")
+check("O26", "源码与打包配置里不得出现高于 VERSION 的变更标注",
+      sorted(set(_O_AHEAD)), [])
+
+
 # ============================================================ 汇总
+
+
 
 print("\n" + "=" * 60)
 print(f"用例总数 {PASS + FAIL}　通过 {PASS}　失败 {FAIL}")

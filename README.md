@@ -102,6 +102,11 @@
 **判定只依据 `workspace:` 标记，不靠包名猜测**——`@scope/xxx` 里既有内部包
 也有真实发布的第三方包（`@vercel/og`、`@anthropic-ai/sdk`），按名字猜必然出错。
 
+排除逻辑在**三个入口都生效**：批量扫描（`scan_projects.py`）、命令行
+（`license_audit.py --package-json`）与 Web 界面。三者共用同一个
+`split_workspace_deps()`，且都会显式打印/返回排除数量，不会静默少算依赖
+（v0.4.2 起；此前只有批量扫描做了排除，命令行与 Web 会把内部包当成第三方依赖）。
+
 26 个项目累计排除 **108 个**工作区内部包（lobe-chat 91、next.js 15、n8n 2），
 其余项目不含 `workspace:` 依赖。该数字在 `scan_summary.json` 的
 `workspace_excluded` 字段里逐项目可查。
@@ -190,6 +195,15 @@ python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 
 `--jobs` 只影响网络等待，判定逻辑仍是确定性的串行流程，结果与串行完全一致。
 
+两点与清单、输出有关的行为：
+
+- **`-r` 指针清单会自动跟随**：清单内容只有一行 `-r requirements/runtime.txt` 时，
+  会递归跟进引用链（带环路与深度保护），只接受清单目录内的相对路径；
+  跟随了哪些文件、哪些引用被跳过都会打印出来——不做静默少解析。
+- **一次产出两份报告**：`--out` 指定的路径写 Markdown，同名 `.json` 写结构化数据。
+  若 `--out` 不以 `.md` 结尾（如 `out.txt`），JSON 会另存为 `out.txt.json`，
+  **两份报告不会互相覆盖**。
+
 ### Web 界面
 
 ```bash
@@ -200,6 +214,9 @@ python web/server.py            # 打开 http://127.0.0.1:8770
 
 - **粘贴依赖清单** —— 直接查许可证，无需上传源码
 - **上传项目 zip** —— 解压后扫描源码，额外判定「使用方式」「自主开发边界」「许可义务是否触发」
+
+上传有三道限额：请求体 20MB；解压后总大小 200MB；解压条目数 2000（防止 zip 炸弹），
+超限或清单类型非法会返回 400 并说明原因。
 
 结果页支持一键下载《开源及第三方资源使用清单》（Markdown / CSV）。
 
@@ -234,13 +251,13 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 196 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
-                          #            + workspace 识别 + 知识库扩容(K) + 未识别归因(L)
-                          #            + 跨 Python 版本一致性(M)
-python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
+python test_cases.py      # 251 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
+                          #            + workspace 识别(J) + 知识库扩容(K) + 未识别归因(L)
+                          #            + 跨 Python 版本一致性(M) + 审查报告修复(N) + 检查清单修复(O)
+python test_semantic.py   #  95 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 **283 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+共 **346 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
 包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
 `contest/` 被当成测试目录、`BSL-1.1` 被 Boost 规则抢先匹配成宽松许可等。
 

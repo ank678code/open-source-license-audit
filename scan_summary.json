@@ -1,0 +1,289 @@
+{
+ "tool_version": "0.3",
+ "projects_scanned": 8,
+ "projects_failed": 2,
+ "projects_rate_limited": 0,
+ "total_dependencies": 316,
+ "resolved": 308,
+ "overall_resolve_rate": 97.5,
+ "high_confidence": 264,
+ "overall_high_conf_rate": 83.5,
+ "findings": 16,
+ "findings_high": 8,
+ "projects_with_copyleft": 7,
+ "category_distribution": {
+  "permissive": 290,
+  "weak-copyleft": 10,
+  "strong-copyleft": 8,
+  "unknown": 8
+ },
+ "per_project": [
+  {
+   "project": "open-compass/opencompass",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 47,
+   "resolved": 46,
+   "resolve_rate": 97.9,
+   "high_confidence": 40,
+   "high_conf_rate": 85.1,
+   "categories": {
+    "permissive": 42,
+    "weak-copyleft": 2,
+    "strong-copyleft": 2,
+    "unknown": 1
+   },
+   "findings": 3,
+   "findings_high": 2,
+   "copyleft_deps": [
+    {
+     "name": "func-timeout",
+     "spdx": "LGPL-2.0-only"
+    },
+    {
+     "name": "fuzzywuzzy",
+     "spdx": "GPL-2.0-only"
+    },
+    {
+     "name": "python-Levenshtein",
+     "spdx": "GPL-2.0-or-later"
+    },
+    {
+     "name": "tqdm",
+     "spdx": "MPL-2.0 AND MIT"
+    }
+   ],
+   "unresolved": [
+    "rouge"
+   ]
+  },
+  {
+   "project": "EleutherAI/lm-evaluation-harness",
+   "license": "MIT",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 70,
+   "resolved": 69,
+   "resolve_rate": 98.6,
+   "high_confidence": 58,
+   "high_conf_rate": 82.9,
+   "categories": {
+    "permissive": 65,
+    "strong-copyleft": 2,
+    "weak-copyleft": 2,
+    "unknown": 1
+   },
+   "findings": 3,
+   "findings_high": 2,
+   "copyleft_deps": [
+    {
+     "name": "fuzzywuzzy",
+     "spdx": "GPL-2.0-only"
+    },
+    {
+     "name": "kstar-planner",
+     "spdx": "GPL-3.0-only"
+    },
+    {
+     "name": "pycountry",
+     "spdx": "LGPL-2.1-only"
+    },
+    {
+     "name": "tqdm",
+     "spdx": "MPL-2.0 AND MIT"
+    }
+   ],
+   "unresolved": [
+    "rouge"
+   ]
+  },
+  {
+   "project": "vllm-project/vllm",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 58,
+   "resolved": 57,
+   "resolve_rate": 98.3,
+   "high_confidence": 45,
+   "high_conf_rate": 77.6,
+   "categories": {
+    "permissive": 56,
+    "unknown": 1,
+    "weak-copyleft": 1
+   },
+   "findings": 1,
+   "findings_high": 0,
+   "copyleft_deps": [
+    {
+     "name": "tqdm",
+     "spdx": "MPL-2.0 AND MIT"
+    }
+   ],
+   "unresolved": [
+    "openai-harmony"
+   ]
+  },
+  {
+   "project": "run-llama/llama_index",
+   "license": "MIT",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 23,
+   "resolved": 23,
+   "resolve_rate": 100.0,
+   "high_confidence": 22,
+   "high_conf_rate": 95.7,
+   "categories": {
+    "permissive": 21,
+    "strong-copyleft": 2
+   },
+   "findings": 2,
+   "findings_high": 2,
+   "copyleft_deps": [
+    {
+     "name": "codespell",
+     "spdx": "GPL-2.0-only"
+    },
+    {
+     "name": "pylint",
+     "spdx": "GPL-2.0-or-later"
+    }
+   ],
+   "unresolved": []
+  },
+  {
+   "project": "chatchat-space/Langchain-Chatchat",
+   "license": "Apache-2.0",
+   "status": "no_snapshot"
+  },
+  {
+   "project": "modelscope/modelscope",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 7,
+   "resolved": 7,
+   "resolve_rate": 100.0,
+   "high_confidence": 6,
+   "high_conf_rate": 85.7,
+   "categories": {
+    "permissive": 6,
+    "weak-copyleft": 1
+   },
+   "findings": 0,
+   "findings_high": 0,
+   "copyleft_deps": [
+    {
+     "name": "tqdm",
+     "spdx": "MPL-2.0 AND MIT"
+    }
+   ],
+   "unresolved": []
+  },
+  {
+   "project": "QwenLM/Qwen-Agent",
+   "license": "Apache-2.0",
+   "status": "no_snapshot"
+  },
+  {
+   "project": "deepset-ai/haystack",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 18,
+   "resolved": 18,
+   "resolve_rate": 100.0,
+   "high_confidence": 16,
+   "high_conf_rate": 88.9,
+   "categories": {
+    "permissive": 17,
+    "weak-copyleft": 1
+   },
+   "findings": 0,
+   "findings_high": 0,
+   "copyleft_deps": [
+    {
+     "name": "tqdm",
+     "spdx": "MPL-2.0 AND MIT"
+    }
+   ],
+   "unresolved": []
+  },
+  {
+   "project": "infiniflow/ragflow",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:requirements.txt",
+   "ecosystem": "PyPI",
+   "total": 70,
+   "resolved": 65,
+   "resolve_rate": 92.9,
+   "high_confidence": 54,
+   "high_conf_rate": 77.1,
+   "categories": {
+    "permissive": 60,
+    "unknown": 5,
+    "weak-copyleft": 3,
+    "strong-copyleft": 2
+   },
+   "findings": 7,
+   "findings_high": 2,
+   "copyleft_deps": [
+    {
+     "name": "demjson3",
+     "spdx": "LGPL-3.0-only"
+    },
+    {
+     "name": "es-core-news-sm",
+     "spdx": "GPL-3.0-only"
+    },
+    {
+     "name": "extract-msg",
+     "spdx": "GPL-unknown"
+    },
+    {
+     "name": "fr-core-news-sm",
+     "spdx": "LGPL-unknown"
+    },
+    {
+     "name": "hypothesis",
+     "spdx": "MPL-2.0"
+    }
+   ],
+   "unresolved": [
+    "agentrun-sdk",
+    "azure-identity",
+    "de-core-news-sm",
+    "en-core-web-sm",
+    "ja-core-news-sm"
+   ]
+  },
+  {
+   "project": "FlowiseAI/Flowise",
+   "license": "Apache-2.0",
+   "status": "ok",
+   "manifest": "snapshot:package.json",
+   "ecosystem": "npm",
+   "total": 23,
+   "resolved": 23,
+   "resolve_rate": 100.0,
+   "high_confidence": 23,
+   "high_conf_rate": 100.0,
+   "categories": {
+    "permissive": 23
+   },
+   "findings": 0,
+   "findings_high": 0,
+   "copyleft_deps": [],
+   "unresolved": []
+  }
+ ]
+}

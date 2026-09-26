@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开源许可证合规检查</title>
+<style>
+  :root{
+    --bg:#fbfbfc; --card:#ffffff; --surface:#f7f8fa; --surface2:#eef1f4;
+    --line:#e3e5e8; --line-strong:#cfd3d8;
+    --ink:#1c1e21; --ink-2:#5a5f66; --ink-3:#8a9099;
+    --blue:#185FA5; --blue-bg:#eef5fc; --blue-line:#b9d5ef;
+    --green:#2f6a1f; --green-bg:#f0f7ea; --green-line:#cfe4c0;
+    --amber:#8a5a06; --amber-bg:#fdf5e6; --amber-line:#eddcb8;
+    --red:#9c2b2b; --red-bg:#fdeeee; --red-line:#f0cccc;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.7; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px; margin:0 auto; padding:36px 24px 72px}
+  header{margin-bottom:26px}
+  h1{font-size:22px; font-weight:600; margin:0 0 4px; letter-spacing:-.2px}
+  .sub{color:var(--ink-2); font-size:13px; margin:0}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px 24px; margin-bottom:18px}
+  .card h2{font-size:14px; font-weight:600; margin:0 0 16px; color:var(--ink)}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  label{display:block; font-size:12.5px; color:var(--ink-2); margin-bottom:6px}
+  input[type=text], select, textarea{
+    width:100%; font-family:inherit; font-size:13px; color:var(--ink);
+    background:var(--card); border:1px solid var(--line-strong); border-radius:8px;
+    padding:9px 12px; outline:none}
+  input[type=text]:focus, select:focus, textarea:focus{border-color:var(--blue); box-shadow:0 0 0 3px rgba(24,95,165,.1)}
+  textarea{font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12.5px; line-height:1.6; resize:vertical; min-height:150px}
+
+  .tabs{display:flex; gap:6px; margin:18px 0 14px; border-bottom:1px solid var(--line)}
+  .tab{padding:8px 14px; font-size:13px; color:var(--ink-2); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px}
+  .tab.on{color:var(--blue); border-bottom-color:var(--blue); font-weight:500}
+
+  button{
+    font-family:inherit; font-size:13.5px; font-weight:500; cursor:pointer;
+    background:var(--blue); color:#fff; border:none; border-radius:8px; padding:10px 22px}
+  button:hover{background:#134d87}
+  button:disabled{background:var(--line-strong); cursor:not-allowed}
+  button.ghost{background:transparent; color:var(--blue); border:1px solid var(--blue-line); padding:8px 16px; font-size:13px}
+  button.ghost:hover{background:var(--blue-bg)}
+  .actions{display:flex; align-items:center; gap:12px; margin-top:18px; flex-wrap:wrap}
+  .hint{font-size:12px; color:var(--ink-3)}
+
+  .metrics{display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:20px}
+  .metric{background:var(--surface); border-radius:10px; padding:13px 15px}
+  .metric .lbl{font-size:12px; color:var(--ink-2); margin-bottom:3px}
+  .metric .val{font-size:21px; font-weight:600; letter-spacing:-.5px}
+  .metric .val small{font-size:11.5px; font-weight:400; color:var(--ink-2); margin-left:2px}
+
+  table{width:100%; border-collapse:collapse; font-size:12.5px}
+  th{text-align:left; font-weight:600; color:var(--ink-2); font-size:12px; padding:8px 11px;
+     border-bottom:1px solid var(--line-strong); background:var(--surface); position:sticky; top:0}
+  td{padding:9px 11px; border-bottom:1px solid var(--line); vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.mono{font-family:ui-monospace,Consolas,monospace; font-size:12px}
+
+  .pill{display:inline-block; font-size:11px; padding:1px 8px; border-radius:5px; white-space:nowrap}
+  .p-perm{background:var(--green-bg); color:var(--green); border:1px solid var(--green-line)}
+  .p-weak{background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-line)}
+  .p-strong{background:var(--red-bg); color:var(--red); border:1px solid var(--red-line)}
+  .p-unknown{background:var(--surface2); color:var(--ink-2); border:1px solid var(--line-strong)}
+  .lv{font-weight:600}
+  .lv-高{color:var(--red)} .lv-中{color:var(--amber)}
+
+  .scroll{max-height:440px; overflow:auto; border:1px solid var(--line); border-radius:10px}
+
+  .msg{padding:12px 16px; border-radius:10px; font-size:13px; margin-bottom:16px; display:none}
+  .msg.err{display:block; background:var(--red-bg); border:1px solid var(--red-line); color:var(--red)}
+  .msg.ok{display:block; background:var(--green-bg); border:1px solid var(--green-line); color:var(--green)}
+  .msg.info{display:block; background:var(--blue-bg); border:1px solid var(--blue-line); color:var(--blue)}
+
+  .spin{display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.35);
+        border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:7px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #results{display:none}
+  .note{background:var(--surface); border-left:2px solid var(--blue-line); border-radius:0 8px 8px 0;
+        padding:11px 15px; font-size:12.5px; color:var(--ink-2); margin:14px 0 0}
+  footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--line); color:var(--ink-3); font-size:12px}
+  @media (max-width:720px){ .grid2{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>开源许可证合规检查</h1>
+    <p class="sub">扫描依赖树，识别 GPL / AGPL 等传染性许可，生成可直接提交的《开源及第三方资源使用清单》</p>
+  </header>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="card">
+    <h2>输入</h2>
+    <div class="grid2">
+      <div>
+        <label>项目名称</label>
+        <input type="text" id="pname" value="我的开源项目" maxlength="80">
+      </div>
+      <div>
+        <label>项目自身许可证</label>
+        <select id="plic">
+          <option>MIT</option>
+          <option>Apache-2.0</option>
+          <option>BSD-3-Clause</option>
+          <option>BSD-2-Clause</option>
+          <option>ISC</option>
+          <option>MPL-2.0</option>
+          <option>LGPL-3.0-only</option>
+          <option>GPL-3.0-only</option>
+          <option>AGPL-3.0-only</option>
+          <option>Proprietary</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab on" data-tab="paste">粘贴依赖清单</div>
+      <div class="tab" data-tab="zip">上传项目 zip（含语义判定）</div>
+    </div>
+
+    <div id="pane-paste">
+      <div class="grid2" style="margin-bottom:12px">
+        <div>
+          <label>清单类型</label>
+          <select id="kind">
+            <option value="requirements">requirements.txt</option>
+            <option value="pyproject">pyproject.toml</option>
+            <option value="package-json">package.json</option>
+          </select>
+        </div>
+      </div>
+      <label>依赖清单内容</label>
+      <textarea id="manifest" spellcheck="false">requests
+flask
+pandas
+pymupdf
+mysqlclient
+PyQt5
+scikit-learn
+chardet
+psycopg2-binary
+tqdm</textarea>
+    </div>
+
+    <div id="pane-zip" style="display:none">
+      <label>项目压缩包（.zip，建议小于 20MB）</label>
+      <input type="file" id="zipfile" accept=".zip" style="font-size:13px">
+      <p class="hint" style="margin:10px 0 0">
+        上传后会解压到临时目录，自动查找依赖清单并扫描源码，额外判定「使用方式」「自主开发边界」「许可义务是否触发」——例如区分「只是 import 了一个 GPL 包」和「fork 了它的源码做二次开发」。
+      </p>
+    </div>
+
+    <div class="actions">
+      <button id="go">开始审计</button>
+      <button class="ghost" id="loaddemo">载入真实项目示例</button>
+      <span class="hint">数据来自 PyPI / npm registry 实时元数据</span>
+    </div>
+  </div>
+
+  <div id="results">
+    <div class="card">
+      <h2>审计结果</h2>
+      <div class="metrics" id="metrics"></div>
+      <div id="riskbox"></div>
+      <div class="actions">
+        <button class="ghost" id="dl-md">下载清单（Markdown）</button>
+        <button class="ghost" id="dl-csv">下载清单（CSV）</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>完整资源清单</h2>
+      <div class="scroll">
+        <table id="tbl"><thead></thead><tbody></tbody></table>
+      </div>
+      <div class="note" id="tblnote"></div>
+    </div>
+  </div>
+
+  <footer>
+    开源许可证合规检查工具 · MIT License · 不替代法律意见，涉及商业分发请咨询专业人士
+  </footer>
+</div>
+
+<script>
+let LAST = null;
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  const isPaste = t.dataset.tab === 'paste';
+  document.getElementById('pane-paste').style.display = isPaste ? '' : 'none';
+  document.getElementById('pane-zip').style.display = isPaste ? 'none' : '';
+});
+
+const DEMO = `requests
+flask
+pandas
+numpy
+openai
+tqdm
+PyYAML
+Jinja2
+pymupdf
+mysqlclient
+PyQt5
+psycopg2-binary
+chardet
+scikit-learn
+fuzzywuzzy
+python-Levenshtein`;
+
+document.getElementById('loaddemo').onclick = () => {
+  document.getElementById('manifest').value = DEMO;
+  document.getElementById('pname').value = '学生 AI 应用项目（演示）';
+  document.getElementById('plic').value = 'MIT';
+  document.querySelector('.tab[data-tab=paste]').click();
+};
+
+function show(kind, text) {
+  const m = document.getElementById('msg');
+  m.className = 'msg ' + kind;
+  m.textContent = text;
+  if (kind === 'ok' || kind === 'info') setTimeout(() => { m.className = 'msg'; }, 4000);
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function pill(cat, cn) {
+  const k = { '宽松许可': 'perm', '弱传染': 'weak', '强传染': 'strong', '网络传染': 'strong' }[cat] || 'unknown';
+  return `<span class="pill p-${k}">${esc(cn)}</span>`;
+}
+
+document.getElementById('go').onclick = async () => {
+  const btn = document.getElementById('go');
+  const isPaste = document.querySelector('.tab.on').dataset.tab === 'paste';
+  const body = {
+    project_name: document.getElementById('pname').value,
+    project_license: document.getElementById('plic').value,
+  };
+
+  if (isPaste) {
+    body.manifest = document.getElementById('manifest').value;
+    body.kind = document.getElementById('kind').value;
+    if (!body.manifest.trim()) return show('err', '请先填入依赖清单内容');
+  } else {
+    const f = document.getElementById('zipfile').files[0];
+    if (!f) return show('err', '请先选择要上传的 zip 文件');
+    if (f.size > 20 * 1024 * 1024) return show('err', '文件超过 20MB 上限');
+    show('info', '正在读取压缩包…');
+    const b64 = await new Promise(res => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.readAsDataURL(f);
+    });
+    body.zip_b64 = b64;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>审计中…';
+  show('info', '正在查询 PyPI / npm 元数据，依赖较多时需要十几秒…');
+
+  try {
+    const r = await fetch('/api/audit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    LAST = d;
+    render(d);
+    show('ok', `审计完成：共 ${d.stats.total} 个依赖，检出 ${d.stats.findings} 条风险（高危 ${d.stats.findings_high} 条）`);
+  } catch (e) {
+    show('err', '审计失败：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '开始审计';
+  }
+};
+
+function render(d) {
+  const s = d.stats;
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="lbl">依赖总数</div><div class="val">${s.total}</div></div>
+    <div class="metric"><div class="lbl">许可证识别率</div><div class="val">${s.resolve_rate}<small>%</small></div></div>
+    <div class="metric"><div class="lbl">高可信度判定</div><div class="val">${s.high_conf_rate}<small>%</small></div></div>
+    <div class="metric"><div class="lbl">检出风险项</div><div class="val">${s.findings}<small>条</small></div></div>
+    <div class="metric"><div class="lbl">其中高危</div><div class="val" style="color:${s.findings_high ? 'var(--red)' : 'inherit'}">${s.findings_high}<small>条</small></div></div>`;
+
+  const rb = document.getElementById('riskbox');
+  if (!d.findings.length) {
+    rb.innerHTML = '<div class="msg ok" style="display:block">未检出许可证兼容性风险。</div>';
+  } else {
+    let rows = d.findings.map(f => `<tr>
+      <td class="lv lv-${esc(f.level)}">${esc(f.level)}</td>
+      <td class="mono">${esc(f.pkg)}</td>
+      <td class="mono">${esc(f.license)}</td>
+      <td>${esc(f.reason)}</td>
+      <td>${esc(f.advice)}</td></tr>`).join('');
+    rb.innerHTML = `<div class="scroll" style="max-height:320px"><table>
+      <thead><tr><th style="width:44px">级别</th><th style="width:170px">资源</th>
+      <th style="width:130px">许可证</th><th>风险说明</th><th>处理建议</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+
+  const sem = s.semantic;
+  const head = sem
+    ? ['资源名称', '版本', '许可证', '类别', '使用方式', '自主开发边界', '义务触发', '判定依据']
+    : ['资源名称', '版本', '许可证', '类别', '识别依据', '可信度', '关键许可义务', '状态'];
+  document.querySelector('#tbl thead').innerHTML = '<tr>' + head.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+  document.querySelector('#tbl tbody').innerHTML = d.records.map(r => {
+    const lic = r.spdx === 'UNKNOWN' ? '<span style="color:var(--ink-3)">未识别</span>' : esc(r.spdx);
+    const cat = pill(r.category, r.category_cn);
+    if (sem) {
+      const t = r.trigger === '是'
+        ? '<span class="lv lv-高">是</span>'
+        : (r.trigger === '否' ? '否' : '<span class="lv lv-中">待确认</span>');
+      return `<tr><td class="mono">${esc(r.name)}</td><td class="mono">${esc(r.version)}</td>
+        <td class="mono">${lic}</td><td>${cat}</td><td>${esc(r.usage || '')}</td>
+        <td>${esc(r.boundary || '')}</td><td>${t}</td>
+        <td style="color:var(--ink-2)">${esc(r.evidence || '')}</td></tr>`;
+    }
+    return `<tr><td class="mono">${esc(r.name)}</td><td class="mono">${esc(r.version)}</td>
+      <td class="mono">${lic}</td><td>${cat}</td>
+      <td style="color:var(--ink-2)">${esc(r.field)}</td>
+      <td>${esc(r.confidence)}</td>
+      <td style="color:var(--ink-2)">${esc(r.obligation)}</td>
+      <td>${r.status === 'OK' ? '已核验' : esc(r.status)}</td></tr>`;
+  }).join('');
+
+  document.getElementById('tblnote').textContent = sem
+    ? '「使用方式」「自主开发边界」「许可义务是否触发」由证据采集 + 语义判定 + 规则校验三层闭环产出；判定依据列展示了所依据的客观证据。'
+    : '粘贴清单模式只做许可证审计。上传项目 zip 可额外获得使用方式、自主开发边界等语义字段判定。';
+
+  document.getElementById('results').style.display = '';
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+document.getElementById('dl-md').onclick = () => {
+  if (!LAST) return;
+  dl(`${LAST.project}_开源及第三方资源使用清单.md`, LAST.checklist_md, 'text/markdown');
+};
+
+document.getElementById('dl-csv').onclick = () => {
+  if (!LAST) return;
+  const sem = LAST.stats.semantic;
+  const head = sem
+    ? ['资源名称', '版本', '许可证', '类别', '使用方式', '自主开发边界', '许可义务是否触发', '判定依据']
+    : ['资源名称', '版本', '许可证', '类别', '识别依据', '可信度', '关键许可义务', '状态'];
+  const rows = LAST.records.map(r => sem
+    ? [r.name, r.version, r.spdx, r.category_cn, r.usage, r.boundary, r.trigger, r.evidence]
+    : [r.name, r.version, r.spdx, r.category_cn, r.field, r.confidence, r.obligation, r.status]);
+  const csv = [head, ...rows].map(row =>
+    row.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  dl(`${LAST.project}_资源清单.csv`, '\ufeff' + csv, 'text/csv');
+};
+
+function dl(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: type + ';charset=utf-8' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+</script>
+</body>
+</html>

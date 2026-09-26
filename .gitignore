@@ -12,3 +12,12 @@ report_*.json
 report_*.md
 license_audit_report.*
 smoke_report.md
+req_lm_eval.txt
+
+# 批量扫描的工作目录（由 scan_projects.py 重新生成）
+# 其中包含第三方项目的依赖清单，不宜再分发；仓库中保留汇总结果
+scan/
+
+# Web 服务的临时产物
+_demo.zip
+_check.js

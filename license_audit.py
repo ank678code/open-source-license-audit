@@ -30,6 +30,8 @@ AIC·AI+开源赛道参赛作品「依赖许可证哨兵」
 """
 
 import argparse
+import csv
+import io
 import json
 import re
 import sys
@@ -1531,16 +1533,22 @@ PENDING_BOUNDARY = "待确认"
 _STATUS_CN = {"OK": "已核验", "NOT_FOUND": "未找到", "FETCH_ERROR": "获取失败"}
 
 
-def to_checklist_table(records, judgments=None):
-    """生成符合竞赛要求的《开源及第三方资源使用清单》。
+# 《开源及第三方资源使用清单》的列定义。**这是列顺序的唯一来源**——
+# Markdown、CSV 与 Web 页面的预览表都由 to_checklist_rows() 渲染。
+# 此前 Web 端的「下载 CSV」是前端另拼的一张 8 列表，与 Markdown 的 11 列
+# 既不列名对应也不内容对应：用户下到的 CSV 根本不是竞赛要求的那份清单。
+CHECKLIST_COLUMNS = ["资源名称", "类型", "版本", "来源", "许可证/授权类型",
+                     "识别依据", "使用方式", "关键许可义务或限制",
+                     "自主开发边界", "合规状态", "开放方式"]
 
-    judgments: {包名: {"使用方式":..., "自主开发边界":...}}，由 semantic_audit.py
-    在采集源码证据后产出。未传入的包按"待确认"输出，不臆断使用方式。
+
+def to_checklist_rows(records, judgments=None):
+    """把审计结果整理成清单的行，返回 (表头, 数据行列表)。
+
+    Markdown / CSV / Web 预览都从这里取数，三个出口逐格一致。
     """
     judgments = judgments or {}
-    lines = ["| 资源名称 | 类型 | 版本 | 来源 | 许可证/授权类型 | 识别依据 | 使用方式 | "
-             "关键许可义务或限制 | 自主开发边界 | 合规状态 | 开放方式 |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    rows = []
     for r in records:
         cat = category_of(r["spdx"])
         status = _STATUS_CN.get(r["status"], r["status"])
@@ -1555,14 +1563,48 @@ def to_checklist_table(records, judgments=None):
         cn = commercial_note(r["spdx"])
         if cn:
             obs += "；⚠ " + cn
-        lines.append("| {} | {} 依赖包 | {} | {} | {} | {}（可信度{}） | "
-                     "{} | {} | {} | {} | "
-                     "随项目一并声明许可 |".format(
-                         r["name"], r["source"], r["version"], r["source"],
-                         r["spdx"] if r["spdx"] != "UNKNOWN" else "未识别",
-                         r.get("license_field", "?"), r.get("confidence", "?"),
-                         usage, obs, boundary, status))
+        rows.append([
+            r["name"],
+            "%s 依赖包" % r["source"],
+            r["version"],
+            r["source"],
+            r["spdx"] if r["spdx"] != "UNKNOWN" else "未识别",
+            "%s（可信度%s）" % (r.get("license_field", "?"),
+                              r.get("confidence", "?")),
+            usage,
+            obs,
+            boundary,
+            status,
+            "随项目一并声明许可",
+        ])
+    return list(CHECKLIST_COLUMNS), rows
+
+
+def to_checklist_table(records, judgments=None):
+    """生成符合竞赛要求的《开源及第三方资源使用清单》（Markdown）。
+
+    judgments: {包名: {"使用方式":..., "自主开发边界":...}}，由 semantic_audit.py
+    在采集源码证据后产出。未传入的包按"待确认"输出，不臆断使用方式。
+    """
+    header, rows = to_checklist_rows(records, judgments)
+    lines = ["| " + " | ".join(header) + " |",
+             "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(row) + " |" for row in rows]
     return "\n".join(lines)
+
+
+def to_checklist_csv(records, judgments=None):
+    """同一份清单的 CSV（列与内容与 Markdown 完全一致，可直接用 Excel 打开）。
+
+    用 \r\n 行尾并带 BOM——Excel 打开 UTF-8 CSV 时靠 BOM 认编码，
+    否则中文列名会显示成乱码。
+    """
+    header, rows = to_checklist_rows(records, judgments)
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\r\n")
+    w.writerow(header)
+    w.writerows(rows)
+    return "\ufeff" + buf.getvalue()
 
 
 def render_report(project_name, project_license, records, findings, locked=0):

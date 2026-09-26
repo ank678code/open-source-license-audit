@@ -35,6 +35,7 @@ sys.path.insert(0, str(ROOT))
 from license_audit import (parse_requirements_verbose, parse_pyproject_verbose,
                            parse_package_json_verbose, exclude_workspace_deps,
                            audit, category_of, obligations_of, to_checklist_table,
+                           to_checklist_csv, to_checklist_rows,
                            CATEGORY_CN, VERSION)
 from semantic_audit import collect_evidence, judge_by_rules, evidence_summary
 
@@ -153,6 +154,12 @@ def build_payload(project_name, project_license, records, findings,
             judgments[r["name"]] = j
         out_records.append(row)
 
+    # 清单的三种出口全部走 to_checklist_rows() 这一个数据源：
+    # checklist_rows 供页面直接渲染（所见），md/csv 供下载（所得）。
+    # 以前前端另拼一张 8 列表当 CSV，用户下到的根本不是要求的 11 列清单。
+    head, crows = to_checklist_rows(records, judgments)
+    pending = sum(1 for row in crows if row[6].startswith("待确认"))
+
     return {
         "project": project_name, "project_license": project_license,
         "manifest": manifest_label,
@@ -165,6 +172,8 @@ def build_payload(project_name, project_license, records, findings,
             "findings": len(findings), "findings_high": hi,
             "categories": {CATEGORY_CN.get(k, k): v for k, v in cats.items()},
             "semantic": bool(project_dir),
+            # 清单里还有多少行的「使用方式」是待确认的——这是交付前必须人工补的
+            "checklist_pending": pending,
             # 把这些内部包显式报出来。数量对得上，用户才知道
             # 依赖数比 package.json 里少是"排除"还是"漏解析"。
             "workspace_excluded": len(workspace_excluded),
@@ -172,7 +181,10 @@ def build_payload(project_name, project_license, records, findings,
         "workspace_excluded": list(workspace_excluded),
         "records": out_records,
         "findings": findings,
+        "checklist_columns": head,
+        "checklist_rows": crows,
         "checklist_md": to_checklist_table(records, judgments),
+        "checklist_csv": to_checklist_csv(records, judgments),
     }
 
 

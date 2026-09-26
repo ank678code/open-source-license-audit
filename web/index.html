@@ -83,6 +83,24 @@
   #results{display:none}
   .note{background:var(--surface); border-left:2px solid var(--blue-line); border-radius:0 8px 8px 0;
         padding:11px 15px; font-size:12.5px; color:var(--ink-2); margin:14px 0 0}
+
+  /* 清单区：交付物是页面主角，11 列需要横向滚动 */
+  .ck-wrap{overflow:auto; border:1px solid var(--line); border-radius:10px; max-height:460px}
+  .ck-wrap table{min-width:1240px}
+  .ck-wrap thead th:first-child, .ck-wrap tbody td:first-child{
+    position:sticky; left:0; background:var(--card); z-index:1}
+  .ck-wrap thead th:first-child{background:var(--surface)}
+  td.pending{background:var(--amber-bg); color:var(--amber); white-space:nowrap}
+  .status{border:1px solid var(--green-line); background:var(--green-bg); color:var(--green);
+          border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:16px}
+  .status.warn{border-color:var(--amber-line); background:var(--amber-bg); color:var(--amber)}
+  .status b{font-weight:600}
+  .src{background:var(--surface); border:1px solid var(--line); border-radius:10px;
+       padding:12px 14px; font-family:ui-monospace,Consolas,monospace; font-size:11.5px;
+       line-height:1.65; max-height:360px; overflow:auto; white-space:pre; margin-top:14px}
+  .sec-num{display:inline-block; width:19px; height:19px; line-height:19px; text-align:center;
+           border-radius:50%; background:var(--blue-bg); color:var(--blue); font-size:11.5px;
+           font-weight:600; margin-right:7px; vertical-align:1px}
   footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--line); color:var(--ink-3); font-size:12px}
   @media (max-width:720px){ .grid2{grid-template-columns:1fr} }
 </style>
@@ -167,17 +185,29 @@ tqdm</textarea>
 
   <div id="results">
     <div class="card">
-      <h2>审计结果</h2>
-      <div class="metrics" id="metrics"></div>
-      <div id="riskbox"></div>
-      <div class="actions">
-        <button class="ghost" id="dl-md">下载清单（Markdown）</button>
-        <button class="ghost" id="dl-csv">下载清单（CSV）</button>
+      <h2><span class="sec-num">1</span>《开源及第三方资源使用清单》—— 可直接提交</h2>
+      <div id="ckstatus" class="status"></div>
+      <div class="actions" style="margin-top:0">
+        <button id="dl-md">下载清单（Markdown）</button>
+        <button class="ghost" id="dl-csv">下载清单（Excel / CSV）</button>
+        <button class="ghost" id="copy-md">复制 Markdown</button>
+        <button class="ghost" id="toggle-src">查看 Markdown 源码</button>
       </div>
+      <div class="ck-wrap" style="margin-top:16px">
+        <table id="ck"><thead></thead><tbody></tbody></table>
+      </div>
+      <pre id="mdsrc" class="src" style="display:none"></pre>
+      <div class="note" id="cknote"></div>
     </div>
 
     <div class="card">
-      <h2>完整资源清单</h2>
+      <h2><span class="sec-num">2</span>审计概览</h2>
+      <div class="metrics" id="metrics"></div>
+      <div id="riskbox"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="sec-num">3</span>依赖明细（工具视角）</h2>
       <div class="scroll">
         <table id="tbl"><thead></thead><tbody></tbody></table>
       </div>
@@ -280,7 +310,8 @@ document.getElementById('go').onclick = async () => {
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     LAST = d;
     render(d);
-    show('ok', `审计完成：共 ${d.stats.total} 个依赖，检出 ${d.stats.findings} 条风险（高危 ${d.stats.findings_high} 条）`);
+    show('ok', `审计完成：已生成 ${(d.checklist_rows || []).length} 行《资源使用清单》；`
+      + `共 ${d.stats.total} 个依赖，检出 ${d.stats.findings} 条风险（高危 ${d.stats.findings_high} 条）`);
   } catch (e) {
     show('err', '审计失败：' + e.message);
   } finally {
@@ -291,18 +322,51 @@ document.getElementById('go').onclick = async () => {
 
 function render(d) {
   const s = d.stats;
+  const cols = d.checklist_columns || [];
+  const rows = d.checklist_rows || [];
+  const pending = s.checklist_pending || 0;
+
+  /* ---------- ① 清单：交付物，放在最前面 ---------- */
+  document.querySelector('#ck thead').innerHTML =
+    '<tr>' + cols.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+  document.querySelector('#ck tbody').innerHTML = rows.map(r =>
+    '<tr>' + r.map(c => String(c).startsWith('待确认')
+      ? `<td class="pending">${esc(c)}</td>` : `<td>${esc(c)}</td>`).join('') + '</tr>'
+  ).join('');
+
+  const st = document.getElementById('ckstatus');
+  if (!rows.length) {
+    st.className = 'status warn';
+    st.textContent = '清单为空：没有解析出任何依赖。';
+  } else if (pending) {
+    st.className = 'status warn';
+    st.innerHTML = `已生成 <b>${rows.length}</b> 行清单（${cols.length} 列，字段与竞赛要求一致）。`
+      + `其中 <b>${pending}</b> 行的「使用方式 / 自主开发边界」为<b>待确认</b>——`
+      + `这两列必须依据源码证据填写，工具不臆断。<b>上传项目 zip</b> 可让工具自动判定。`;
+  } else {
+    st.className = 'status';
+    st.innerHTML = `已生成 <b>${rows.length}</b> 行清单（${cols.length} 列），`
+      + `「使用方式」「自主开发边界」已依据源码证据判定，可直接提交。`;
+  }
+  document.getElementById('mdsrc').textContent = d.checklist_md || '';
+  document.getElementById('cknote').textContent =
+    '清单的三种出口（页面表格 / Markdown / CSV）来自同一份数据，内容逐格一致。'
+    + '「待确认」的单元格表示尚未采集到源码证据，需要人工补填或改用 zip 上传。';
+
+  /* ---------- ② 审计概览 ---------- */
   document.getElementById('metrics').innerHTML = `
     <div class="metric"><div class="lbl">依赖总数</div><div class="val">${s.total}</div></div>
     <div class="metric"><div class="lbl">许可证识别率</div><div class="val">${s.resolve_rate}<small>%</small></div></div>
     <div class="metric"><div class="lbl">高可信度判定</div><div class="val">${s.high_conf_rate}<small>%</small></div></div>
     <div class="metric"><div class="lbl">检出风险项</div><div class="val">${s.findings}<small>条</small></div></div>
-    <div class="metric"><div class="lbl">其中高危</div><div class="val" style="color:${s.findings_high ? 'var(--red)' : 'inherit'}">${s.findings_high}<small>条</small></div></div>`;
+    <div class="metric"><div class="lbl">其中高危</div><div class="val" style="color:${s.findings_high ? 'var(--red)' : 'inherit'}">${s.findings_high}<small>条</small></div></div>
+    <div class="metric"><div class="lbl">清单待确认</div><div class="val" style="color:${pending ? 'var(--amber)' : 'inherit'}">${pending}<small>行</small></div></div>`;
 
   const rb = document.getElementById('riskbox');
   if (!d.findings.length) {
     rb.innerHTML = '<div class="msg ok" style="display:block">未检出许可证兼容性风险。</div>';
   } else {
-    let rows = d.findings.map(f => `<tr>
+    let rws = d.findings.map(f => `<tr>
       <td class="lv lv-${esc(f.level)}">${esc(f.level)}</td>
       <td class="mono">${esc(f.pkg)}</td>
       <td class="mono">${esc(f.license)}</td>
@@ -311,9 +375,10 @@ function render(d) {
     rb.innerHTML = `<div class="scroll" style="max-height:320px"><table>
       <thead><tr><th style="width:44px">级别</th><th style="width:170px">资源</th>
       <th style="width:130px">许可证</th><th>风险说明</th><th>处理建议</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>`;
+      <tbody>${rws}</tbody></table></div>`;
   }
 
+  /* ---------- ③ 依赖明细（工具视角，含识别依据与语义判定） ---------- */
   const sem = s.semantic;
   const head = sem
     ? ['资源名称', '版本', '许可证', '类别', '使用方式', '自主开发边界', '义务触发', '判定依据']
@@ -355,16 +420,37 @@ document.getElementById('dl-md').onclick = () => {
 
 document.getElementById('dl-csv').onclick = () => {
   if (!LAST) return;
-  const sem = LAST.stats.semantic;
-  const head = sem
-    ? ['资源名称', '版本', '许可证', '类别', '使用方式', '自主开发边界', '许可义务是否触发', '判定依据']
-    : ['资源名称', '版本', '许可证', '类别', '识别依据', '可信度', '关键许可义务', '状态'];
-  const rows = LAST.records.map(r => sem
-    ? [r.name, r.version, r.spdx, r.category_cn, r.usage, r.boundary, r.trigger, r.evidence]
-    : [r.name, r.version, r.spdx, r.category_cn, r.field, r.confidence, r.obligation, r.status]);
-  const csv = [head, ...rows].map(row =>
-    row.map(c => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-  dl(`${LAST.project}_资源清单.csv`, '\ufeff' + csv, 'text/csv');
+  dl(`${LAST.project}_开源及第三方资源使用清单.csv`, LAST.checklist_csv, 'text/csv');
+};
+
+document.getElementById('toggle-src').onclick = e => {
+  const p = document.getElementById('mdsrc');
+  const on = p.style.display === 'none';
+  p.style.display = on ? '' : 'none';
+  e.target.textContent = on ? '收起 Markdown 源码' : '查看 Markdown 源码';
+};
+
+document.getElementById('copy-md').onclick = async () => {
+  if (!LAST) return;
+  const text = LAST.checklist_md || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    show('ok', '清单 Markdown 已复制到剪贴板');
+  } catch (err) {
+    // 非安全上下文（非 localhost / 非 https）下 clipboard API 不可用，
+    // 退回到选中 + execCommand，避免"点了没反应"
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+    document.body.removeChild(ta);
+    show(ok ? 'ok' : 'err', ok ? '清单 Markdown 已复制到剪贴板'
+                              : '复制失败，请用「查看 Markdown 源码」手动全选复制');
+  }
 };
 
 function dl(name, text, type) {

@@ -1,0 +1,12 @@
+--- a/Levenshtein/_levenshtein.c
++++ b/Levenshtein/_levenshtein.c
+@@ -1,3 +1,8 @@
++/* 本团队补丁：修复在 Windows + Python 3.13 下的编译告警与内存对齐问题
++ * 上游包许可证：GPL-2.0-or-later
++ * 补丁作者：本团队（仅修改编译适配部分，未改动算法实现）
++ */
+ #include "Python.h"
+@@ -18,7 +23,7 @@
+-    char *buf = PyMem_Malloc(len);
++    char *buf = PyMem_Malloc(len + 1);
++    if (!buf) return NULL;

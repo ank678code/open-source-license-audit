@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+*.egg-info/
+build/
+dist/
+report_*.json
+report_*.md
+license_audit_report.*
+smoke_report.md

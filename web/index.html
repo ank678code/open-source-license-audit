@@ -101,6 +101,25 @@
   .sec-num{display:inline-block; width:19px; height:19px; line-height:19px; text-align:center;
            border-radius:50%; background:var(--blue-bg); color:var(--blue); font-size:11.5px;
            font-weight:600; margin-right:7px; vertical-align:1px}
+
+  /* 导出区：把"要交的东西在哪导出"做成一块独立界面 */
+  .export{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:15px 17px}
+  .export .filerow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:13px}
+  .export .filerow label{margin:0; white-space:nowrap}
+  .export .filerow input[type=text]{max-width:300px; padding:6px 10px; font-size:12.5px}
+  .exp-tbl{width:100%; border-collapse:collapse; font-size:12.5px; background:var(--card);
+           border:1px solid var(--line); border-radius:8px; overflow:hidden}
+  .exp-tbl th{position:static; background:var(--surface2); font-size:11.5px; padding:7px 12px;
+              border-bottom:1px solid var(--line-strong)}
+  .exp-tbl td{padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:middle}
+  .exp-tbl tr:last-child td{border-bottom:none}
+  .exp-tbl .name{font-weight:600}
+  .exp-tbl .sub{color:var(--ink-2); font-size:11.5px; margin-top:1px}
+  .exp-tbl .size{font-family:ui-monospace,Consolas,monospace; color:var(--ink-2);
+                 font-size:11.5px; white-space:nowrap}
+  .exp-tbl button{padding:6px 15px; font-size:12.5px}
+  .exp-tbl .fmt{white-space:nowrap; color:var(--ink-2)}
+  @media (max-width:720px){ .export .filerow input[type=text]{max-width:100%} }
   footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--line); color:var(--ink-3); font-size:12px}
   @media (max-width:720px){ .grid2{grid-template-columns:1fr} }
 </style>
@@ -187,16 +206,29 @@ tqdm</textarea>
     <div class="card">
       <h2><span class="sec-num">1</span>《开源及第三方资源使用清单》—— 可直接提交</h2>
       <div id="ckstatus" class="status"></div>
-      <div class="actions" style="margin-top:0">
-        <button id="dl-md">下载清单（Markdown）</button>
-        <button class="ghost" id="dl-csv">下载清单（Excel / CSV）</button>
-        <button class="ghost" id="copy-md">复制 Markdown</button>
-        <button class="ghost" id="toggle-src">查看 Markdown 源码</button>
+
+      <div class="export">
+        <div class="filerow">
+          <label>文件名前缀</label>
+          <input type="text" id="fname" maxlength="60" value="我的开源项目">
+          <span class="hint">下载的文件名为「前缀_产物名.扩展名」</span>
+        </div>
+        <table class="exp-tbl">
+          <thead><tr><th>可下载的产物</th><th style="width:86px">格式</th>
+          <th style="width:156px">规模</th><th style="width:92px"></th></tr></thead>
+          <tbody id="exports"></tbody>
+        </table>
+        <div class="actions" style="margin-top:14px">
+          <button class="ghost" id="copy-md">复制清单 Markdown</button>
+          <button class="ghost" id="toggle-src">查看清单源码</button>
+        </div>
       </div>
+
+      <pre id="mdsrc" class="src" style="display:none"></pre>
+
       <div class="ck-wrap" style="margin-top:16px">
         <table id="ck"><thead></thead><tbody></tbody></table>
       </div>
-      <pre id="mdsrc" class="src" style="display:none"></pre>
       <div class="note" id="cknote"></div>
     </div>
 
@@ -320,6 +352,52 @@ document.getElementById('go').onclick = async () => {
   }
 };
 
+/* ---------- 导出区：三个产物都从服务端返回的字符串取，前端不拼内容 ---------- */
+const EXPORTS = [
+  { key: 'md', name: '开源及第三方资源使用清单', fmt: 'Markdown', ext: 'md',
+    mime: 'text/markdown', hint: '11 列，可直接贴进报告正文' },
+  { key: 'csv', name: '开源及第三方资源使用清单', fmt: 'CSV', ext: 'csv',
+    mime: 'text/csv', hint: '与 Markdown 同源，可直接用 Excel 打开' },
+  { key: 'report', name: '许可证合规审计报告', fmt: 'Markdown', ext: 'md',
+    mime: 'text/markdown', hint: '含逐项判定、风险明细与未识别归因' },
+];
+
+function exportText(key) {
+  if (!LAST) return '';
+  if (key === 'md') return LAST.checklist_md || '';
+  if (key === 'csv') return LAST.checklist_csv || '';
+  return LAST.report_md || '';
+}
+
+function humanSize(text) {
+  const b = new Blob([text || '']).size;
+  return b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' KB';
+}
+
+function renderExports() {
+  if (!LAST) return;
+  const rows = (LAST.checklist_rows || []).length;
+  const cols = (LAST.checklist_columns || []).length;
+  document.getElementById('exports').innerHTML = EXPORTS.map(a => {
+    const text = exportText(a.key);
+    const scale = a.key === 'report'
+      ? `${text.split('\n').length} 行`
+      : `${cols} 列 · ${rows} 行`;
+    return `<tr>
+      <td><div class="name">《${esc(a.name)}》</div><div class="sub">${esc(a.hint)}</div></td>
+      <td class="fmt">${esc(a.fmt)}</td>
+      <td><div>${esc(scale)}</div><div class="size">${humanSize(text)}</div></td>
+      <td><button class="ghost" data-exp="${a.key}">下载</button></td></tr>`;
+  }).join('');
+  document.querySelectorAll('[data-exp]').forEach(b => {
+    b.onclick = () => {
+      const a = EXPORTS.filter(x => x.key === b.dataset.exp)[0];
+      const pre = (document.getElementById('fname').value || '项目').trim() || '项目';
+      dl(`${pre}_${a.name}.${a.ext}`, exportText(a.key), a.mime);
+    };
+  });
+}
+
 function render(d) {
   const s = d.stats;
   const cols = d.checklist_columns || [];
@@ -350,8 +428,12 @@ function render(d) {
   }
   document.getElementById('mdsrc').textContent = d.checklist_md || '';
   document.getElementById('cknote').textContent =
-    '清单的三种出口（页面表格 / Markdown / CSV）来自同一份数据，内容逐格一致。'
+    '页面表格 / Markdown / CSV 三种出口来自同一份数据，内容逐格一致；'
     + '「待确认」的单元格表示尚未采集到源码证据，需要人工补填或改用 zip 上传。';
+
+  // 导出区的文件名前缀默认取项目名，三个产物的规模与体积在这里算出来
+  document.getElementById('fname').value = d.project || '我的开源项目';
+  renderExports();
 
   /* ---------- ② 审计概览 ---------- */
   document.getElementById('metrics').innerHTML = `
@@ -413,16 +495,6 @@ function render(d) {
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-document.getElementById('dl-md').onclick = () => {
-  if (!LAST) return;
-  dl(`${LAST.project}_开源及第三方资源使用清单.md`, LAST.checklist_md, 'text/markdown');
-};
-
-document.getElementById('dl-csv').onclick = () => {
-  if (!LAST) return;
-  dl(`${LAST.project}_开源及第三方资源使用清单.csv`, LAST.checklist_csv, 'text/csv');
-};
-
 document.getElementById('toggle-src').onclick = e => {
   const p = document.getElementById('mdsrc');
   const on = p.style.display === 'none';
@@ -454,10 +526,15 @@ document.getElementById('copy-md').onclick = async () => {
 };
 
 function dl(name, text, type) {
+  const blob = new Blob([text == null ? '' : text], { type: type + ';charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: type + ';charset=utf-8' }));
+  a.href = URL.createObjectURL(blob);
   a.download = name;
+  a.style.display = 'none';
+  // 必须挂到文档里再点：部分浏览器（含 Firefox）对脱离文档的 <a> 不触发下载
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 }
 </script>

@@ -19,7 +19,7 @@
 git clone https://github.com/ank678code/open-source-license-audit.git
 cd open-source-license-audit
 
-python test_cases.py      # 277 个用例：归一化 + 兼容性 + 知识库 + 归因 + workspace + 审查报告/检查清单修复 + 抽查抓取状态 + 清单出口同源
+python test_cases.py      # 281 个用例：归一化 + 兼容性 + 知识库 + 归因 + workspace + 审查报告/检查清单修复 + 抽查抓取状态 + 清单出口同源
 python test_semantic.py   #  95 个用例：证据采集 + 防幻觉校验 + 回退行为
 ```
 
@@ -75,7 +75,7 @@ python -c "from license_audit import normalize_license; print(normalize_license(
 - 工具当前判成了什么、应该判成什么
 - 为什么（引用许可证条款或 SPDX 定义）
 
-然后**把这条真实值写成测试用例**——本项目 372 个用例每一个都对应一次真实误判，
+然后**把这条真实值写成测试用例**——本项目 376 个用例每一个都对应一次真实误判，
 不是编造的假数据。新增用例放在 `test_cases.py` 对应的分组里（K 组是许可证知识库，
 L 组是未识别归因）。
 

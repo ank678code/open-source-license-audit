@@ -1607,12 +1607,18 @@ def to_checklist_csv(records, judgments=None):
     return "\ufeff" + buf.getvalue()
 
 
-def render_report(project_name, project_license, records, findings, locked=0):
+def render_report(project_name, project_license, records, findings, locked=0,
+                  judgments=None):
     """把审计结果渲染成 (Markdown 文本, JSON 可序列化字典)。
 
     从 main() 里抽出来的纯函数，不读不写文件、不依赖命令行参数——
     这样"重算历史扫描数据"这类离线场景可以复用同一套渲染逻辑，
     产出的报告与重新跑一遍工具完全一致，不会因为两处模板各写一遍而对不上。
+
+    judgments: 可选，{包名: {"使用方式":…, "自主开发边界":…}}。
+    不传时报告里的清单照旧标「待确认」（CLI 与离线重算都走这条路径，
+    输出与以前逐字节一致）；Web 端采集了源码证据后传入，
+    报告里的清单才不会与页面上的清单打架。
     """
     notice = matrix_notice(project_license)
     stats = {}
@@ -1663,11 +1669,16 @@ def render_report(project_name, project_license, records, findings, locked=0):
         md += ["", "> 这些许可已被正确识别（不再是「未识别」），但条款本身有特殊限制，"
                    "商业使用前请逐条确认。", ""]
 
-    md += ["", "## 二、资源清单", "", to_checklist_table(records), "",
+    md += ["", "## 二、资源清单", "", to_checklist_table(records, judgments), "",
            f"> 项目自身许可证：{project_license}　|　清单由脚本自动生成，"
-           f"「识别依据」列标注了每个许可证的判定来源，可信度非「高」的项须人工复核　|　共 {len(records)} 项",
-           "> 「使用方式」「自主开发边界」两列需要源码证据，本报告未采集，"
-           "统一标注为「待确认」；运行 semantic_audit.py 可补齐这两列"]
+           f"「识别依据」列标注了每个许可证的判定来源，可信度非「高」的项须人工复核　|　共 {len(records)} 项"]
+    # 两种情形都只追加**一行**，因此不传 judgments 时输出与改动前逐字节一致
+    if judgments:
+        md.append("> 「使用方式」「自主开发边界」两列由 semantic_audit.py "
+                  "依据源码证据判定")
+    else:
+        md.append("> 「使用方式」「自主开发边界」两列需要源码证据，本报告未采集，"
+                  "统一标注为「待确认」；运行 semantic_audit.py 可补齐这两列")
     if locked:
         md.append(f"> 版本说明：{locked} 个依赖按清单锁定的精确版本查询许可证（见 JSON 的 requested_version 字段）；"
                   "其余为范围约束，按最新版查询，历史版本许可可能与最新版不同，请定期重跑核对")

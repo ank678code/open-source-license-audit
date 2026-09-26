@@ -36,7 +36,7 @@ from license_audit import (parse_requirements_verbose, parse_pyproject_verbose,
                            parse_package_json_verbose, exclude_workspace_deps,
                            audit, category_of, obligations_of, to_checklist_table,
                            to_checklist_csv, to_checklist_rows,
-                           CATEGORY_CN, VERSION)
+                           render_report, CATEGORY_CN, VERSION)
 from semantic_audit import collect_evidence, judge_by_rules, evidence_summary
 
 MAX_BODY = 20 * 1024 * 1024      # 20MB
@@ -160,6 +160,12 @@ def build_payload(project_name, project_license, records, findings,
     head, crows = to_checklist_rows(records, judgments)
     pending = sum(1 for row in crows if row[6].startswith("待确认"))
 
+    # 完整合规报告也一并给出（含逐项判定、风险明细与未识别归因）。
+    # locked 与 CLI 同一口径；judgments 传进去，报告里的清单才不会与页面打架。
+    locked = sum(1 for r in records if r.get("requested_version"))
+    report_md, _ = render_report(project_name, project_license, records, findings,
+                                 locked, judgments)
+
     return {
         "project": project_name, "project_license": project_license,
         "manifest": manifest_label,
@@ -174,6 +180,8 @@ def build_payload(project_name, project_license, records, findings,
             "semantic": bool(project_dir),
             # 清单里还有多少行的「使用方式」是待确认的——这是交付前必须人工补的
             "checklist_pending": pending,
+            # 按清单锁定的精确版本查询的依赖数（与 CLI 报告同一口径）
+            "locked": locked,
             # 把这些内部包显式报出来。数量对得上，用户才知道
             # 依赖数比 package.json 里少是"排除"还是"漏解析"。
             "workspace_excluded": len(workspace_excluded),
@@ -185,6 +193,7 @@ def build_payload(project_name, project_license, records, findings,
         "checklist_rows": crows,
         "checklist_md": to_checklist_table(records, judgments),
         "checklist_csv": to_checklist_csv(records, judgments),
+        "report_md": report_md,
     }
 
 

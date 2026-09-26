@@ -1468,6 +1468,29 @@ _q_zip = _ws.build_payload("测试项目", "MIT", _Q_RECS, [],
 check("Q13", "有源码证据时清单应产出确定的使用方式（待确认行数应减少）",
       _q_zip["stats"]["checklist_pending"] < len(_q_zip["checklist_rows"]), True)
 
+# Q14-Q17 完整合规报告也是导出物之一，它里面嵌的清单必须与 checklist_md 同源。
+#         否则用户下载的报告与清单会对不上——同一份清单又在两个地方各拼一遍。
+from license_audit import render_report, detect_conflicts
+
+_fo = detect_conflicts("MIT", _Q_RECS)
+# 覆盖全部记录：只要漏掉一条，那一行就仍然是「待确认」，
+# 于是"传了判定就不该再有待确认"这条断言会失败
+# （第一版只覆盖了 requests，pymupdf 与 mystery 仍留着待确认，Q15 判红）
+_Q_J_ALL = {r["name"]: {"使用方式": "作为库调用", "自主开发边界": "未修改"}
+            for r in _Q_RECS}
+_rep_j, _ = render_report("测试项目", "MIT", _Q_RECS, _fo, 0, _Q_J_ALL)
+_rep_0, _ = render_report("测试项目", "MIT", _Q_RECS, _fo, 0)
+
+check("Q14", "报告里嵌的清单应与 to_checklist_table(records, judgments) 完全同源",
+      to_checklist_table(_Q_RECS, _Q_J_ALL) in _rep_j, True)
+check("Q15", "全部记录都有语义判定时，报告里的清单不应再出现「待确认（未采集源码证据）」",
+      "待确认（未采集源码证据）" in _rep_j, False)
+# 不传 judgments 是 CLI 与离线重算走的路径，行为必须与改动前一致
+check("Q16", "不传语义判定时（CLI / 离线重算路径）报告照旧标「待确认」",
+      "待确认（未采集源码证据）" in _rep_0, True)
+check("Q17", "Web 返回的报告里嵌的清单应与 checklist_md 逐字节同源",
+      _q_zip["checklist_md"] in _q_zip["report_md"], True)
+
 
 # ============================================================ 汇总
 

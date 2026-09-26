@@ -6,7 +6,7 @@ scan_projects.py — 批量扫描真实开源项目的依赖许可证，产出�
 流程：用 GitHub REST API 拉取各项目的依赖清单 → 本地跑 license_audit
      → 汇总统计 → 产出 scan_summary.json / scan_summary.md
 
-v0.3 修正（可复现性）：
+（可复现性）：
   · 此前依赖工作区根目录的 ghmcp.py（自研 GitHub 连接器封装）。该文件既不在
     仓库里也不在提交包里，导致"任何人拿到源码都能复现评测数据"这一承诺无法兑现
     —— 执行本脚本会直接 ModuleNotFoundError。
@@ -123,7 +123,7 @@ COPYLEFT_CATS = ("weak-copyleft", "strong-copyleft", "network-copyleft")
 class RateLimited(Exception):
     """GitHub API 配额用尽。
 
-    v0.3 修正：以前 403/429 会被 `except Exception: return None` 吞掉，
+    以前 403/429 会被 `except Exception: return None` 吞掉，
     最终以"未找到可解析的依赖清单（no_manifest）"的形式进入汇总——
     把「接口限流」误报成「这个项目没有依赖清单」，结论完全错。
     实测匿名接口 60 次/小时，连跑两次完整扫描就会触发。
@@ -380,7 +380,7 @@ def main():
             "findings_high": len(hi), "copyleft_deps": cl,
             "unresolved": [r["name"] for r in recs if r["spdx"] == "UNKNOWN"],
             "workspace_excluded": len(workspace_deps),
-            # v0.4：未识别不再是笼统一个数，而是按性质拆开
+            # 未识别不再是笼统一个数，而是按性质拆开
             "unknown_breakdown": unknown_breakdown(recs),
             "effective_resolve_rate": effective_resolve_rate(recs),
         }
@@ -403,7 +403,7 @@ def main():
         for k, v in r["categories"].items():
             cats[k] += v
 
-    # v0.4：全量未识别项归因。此前 97.8% 这个数字混装了三种性质，
+    # 全量未识别项归因。此前 97.8% 这个数字混装了三种性质，
     # 既不能指导改进也不能对外解释；拆开后才知道该补知识库还是去人工核对。
     ukb = Counter()
     for r in ok:

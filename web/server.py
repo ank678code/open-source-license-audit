@@ -43,7 +43,7 @@ MAX_PKGS = 200                   # 单次审计的依赖上限，避免误传超
 JOBS = 12                        # 元数据抓取并发数（零第三方依赖，用标准库线程池）
 MANIFEST_CANDIDATES = ["requirements.txt", "requirements/runtime.txt",
                        "requirements/common.txt", "pyproject.toml", "package.json"]
-# v0.4.2：请求体上限只约束了"压缩包本身"。压缩比极高的包解压后可以膨胀到
+# 请求体上限只约束了"压缩包本身"。压缩比极高的包解压后可以膨胀到
 # 几十 GB，把本机磁盘写满，因此还要限制解压后的总大小与条目数。
 MAX_UNZIP_BYTES = 200 * 1024 * 1024
 MAX_UNZIP_ENTRIES = 2000
@@ -92,7 +92,7 @@ def detect_and_parse(project_dir):
 
     返回 (清单相对路径, 包名列表, 生态, 版本约束表, 已排除的工作区内部包)。
     `-r` 引用由 parse_requirements_verbose 统一跟随（含目录围栏、环路与深度
-    保护），不再在这里自己写一份——v0.4.2 之前此处只跟随一层且取首个非空结果，
+    保护），不再在这里自己写一份——此前此处只跟随一层且取首个非空结果，
     与 scan_projects.py 的递归跟随行为不一致（检查清单 P3-4/P3-5）。
     """
     for rel in MANIFEST_CANDIDATES:
@@ -148,7 +148,7 @@ def build_payload(project_name, project_license, records, findings,
             row.update({"usage": j["使用方式"], "boundary": j["自主开发边界"],
                         "trigger": j["许可义务是否触发"], "reason": j["理由"],
                         "evidence": evidence_summary(ev)})
-            # v0.3 修正：把语义判定回填进清单表，避免"页面上写已二次开发、
+            # 把语义判定回填进清单表，避免"页面上写已二次开发、
             # 下载的 Markdown 里却写未修改源码"这种自相矛盾
             judgments[r["name"]] = j
         out_records.append(row)
@@ -165,7 +165,7 @@ def build_payload(project_name, project_license, records, findings,
             "findings": len(findings), "findings_high": hi,
             "categories": {CATEGORY_CN.get(k, k): v for k, v in cats.items()},
             "semantic": bool(project_dir),
-            # v0.4.2：把这些内部包显式报出来。数量对得上，用户才知道
+            # 把这些内部包显式报出来。数量对得上，用户才知道
             # 依赖数比 package.json 里少是"排除"还是"漏解析"。
             "workspace_excluded": len(workspace_excluded),
         },

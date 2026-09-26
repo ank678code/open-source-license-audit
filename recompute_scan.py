@@ -34,14 +34,33 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_ap = argparse.ArgumentParser(description="离线重算历史扫描数据")
-_ap.add_argument("--data", default=str(Path(__file__).parent),
-                 help="存放 scan/ 与 scan_summary.* 的数据目录（默认本脚本所在目录）")
-_ap.add_argument("--code", default=None,
-                 help="从哪个目录 import license_audit（默认与 --data 相同）")
-_ap.add_argument("--dry-run", action="store_true",
-                 help="只打印重算差异，不写回任何文件")
-_A = _ap.parse_args()
+def _build_parser():
+    ap = argparse.ArgumentParser(description="离线重算历史扫描数据")
+    ap.add_argument("--data", default=str(Path(__file__).parent),
+                    help="存放 scan/ 与 scan_summary.* 的数据目录（默认本脚本所在目录）")
+    ap.add_argument("--code", default=None,
+                    help="从哪个目录 import license_audit（默认与 --data 相同）")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="只打印重算差异，不写回任何文件")
+    return ap
+
+
+# ⚠️ 只在作为主程序运行时解析命令行参数，被 import 时一律取默认值。
+#
+# 本模块列在 pyproject.toml 的 py-modules 里，`import recompute_scan` 会发生在
+# **别人的进程**中——test_cases.py 的 N26（打包自检：console scripts 目标函数
+# 都应可导入）就会 import 它。若在模块层无条件 parse_args()，argparse 会去解析
+# **宿主脚本**的 sys.argv：
+#
+#     $ python test_cases.py -v
+#     usage: test_cases.py [-h] [--data DATA] [--code CODE] [--dry-run]
+#     test_cases.py: error: unrecognized arguments: -v        ← 退出码 2
+#
+# 实测后果：263 个用例只跑到第 224 个就中断，-v 模式（文档里写明的用法）
+# 完全不可用，而佐证材料的用例矩阵也因此少了 39 条。
+_A = (_build_parser().parse_args() if __name__ == "__main__"
+      else argparse.Namespace(data=str(Path(__file__).parent),
+                              code=None, dry_run=False))
 
 SRC = Path(_A.data)
 CODE = Path(_A.code) if _A.code else SRC

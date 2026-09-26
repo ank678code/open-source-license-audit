@@ -225,7 +225,7 @@ check("E8", "采纳后应标注来源为模型判定",
 
 # ============================================================ F. 测试文件判定
 
-print("\nF. 测试文件路径判定（v0.3 修复：子串匹配会把结论带反）")
+print("\nF. 测试文件路径判定（子串匹配会把结论带反）")
 
 from semantic_audit import (is_test_path, judgments_of, render_checklist,
                             OllamaBackend, OpenAICompatibleBackend)
@@ -403,7 +403,7 @@ for cid, pkg, want in [("I12", "scikit-image", "skimage"),
     check(cid, f"{pkg} 应映射到 {want}", want in import_names(pkg), True)
 
 
-# ============================================================ J. 依赖归属精确匹配（v0.4.2）
+# ============================================================ J. 依赖归属精确匹配（）
 # 来源：第三方检查清单 P3-1。原实现用"包名小写是否出现在清单文本里"判断依赖归属，
 # 于是 torch 会被 torchvision 命中、pytest 会被 pytest-cov 命中——而这份证据是要
 # 喂给模型做合规判断的，命中错等于把结论带偏。

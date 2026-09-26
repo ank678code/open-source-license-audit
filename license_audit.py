@@ -1,69 +1,27 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 license_audit.py — 开源许可证合规检查 + 《开源及第三方资源使用清单》生成器
 AIC·AI+开源赛道参赛作品「依赖许可证哨兵」
 
-版本号以本文件下方的 VERSION 常量为唯一来源，不在此处硬编码——
-此前这里写 v0.3，而 VERSION 已到 0.4、pyproject.toml 又是 0.3.0，
-三处各说各话（审查报告 L1）。下方按引入版本分节记录修正历史。
+版本号以本文件下方的 VERSION 常量为唯一来源，不在此处硬编码
+（曾出现代码写 v0.4、pyproject.toml 写 0.3.0、CHANGELOG 写 0.4.0 三处不一致）。
+各版本的修正内容与根因分析见仓库根目录的 CHANGELOG.md 与 FIXES.md。
 
 功能链路：
   依赖清单解析 → PyPI/npm 元数据抓取 → 许可证归一化(SPDX) → 类别判定
   → 兼容性冲突检测(含传递依赖抽查) → 输出竞赛要求的清单表格
 
-v0.3 修正（均为实测中发现的真实问题）：
-  · 并发抓取：ThreadPoolExecutor 将 300+ 依赖的串行查询从 ~40 分钟压缩到 ~3 分钟
-  · torch 的 license_expression "Apache-2.0 WITH LLVM-exception AND MIT" 被错误截断
-    → 修复 WITH 例外处理逻辑，保留主许可证并正确解析复合表达式
-  · demjson3 的 classifier 只给 "LGPL" 家族名，license 字段给出 "GNU LGPL 3.0"
-    → 增加版本号补全策略：高可信字段返回家族名时，用低可信字段补版本
-  · scan_projects.py 依赖缺失的 ghmcp 连接器
-    → 完全重写为纯标准库实现（urllib+json），零外部依赖
-  · mysqlclient 是 "GPL-2.0-or-later"，此前被误归一为 GPL-2.0-only
-    → 增加 -or-later / + 后缀处理，该区别直接影响兼容性判断
-  · PyQt5 写 "GPL v3"、chardet 写 "0BSD" 此前均无法识别 → 补充正则
-
-v0.3 修正（三项影响审计结论的正确性问题）：
-  · SPDX OR 运算符此前被当作 AND 处理，"GPL-2.0-only OR MIT"（任选其一）
-    被误判为强传染高危
-    → 保留 OR 语义：OR 可任选其一按最宽松项判定，AND 须全部满足按最严格项判定
-  · 无版本号的 "GNU General Public License" 等全称写法此前被臆断为 3.0
-    → 无版本信息一律归入 GPL-unknown / LGPL-unknown，待人工确认
-  · 依赖清单的版本约束此前被丢弃，永远查最新版许可证
-    → 解析时保留版本约束；精确锁定版本（==1.2.3 / 1.2.3）按锁定版本查询，
-      范围约束仍查最新版并在报告中标注
-  · 清单文件读取兼容 UTF-8 BOM（Windows 记事本保存的 requirements.txt 常见）
-
-v0.3 增补（并发、诚实性、可复现性）：
-  · 兼容性矩阵此前只覆盖 11 种项目许可证，其余取值会静默退化为"一律报冲突"
-    → 补齐全部内置项目许可证；对矩阵未覆盖的项目许可证显式给出 notices 告警，
-      不再假装有结论
-  · 清单表的「使用方式」「自主开发边界」此前被硬编码为"作为库调用（未修改源码）"，
-      相当于在没有源码证据的情况下假装确定——与本工具"宁可暴露不确定性"的
-      设计原则相悖，也与"源码不在本地时标为待确认"的已知限制相矛盾
-    → 改为默认输出"待确认（未采集源码证据）"，只有 semantic_audit.py 传入
-      真实判定结果时才写入确定结论
-  · 版本约束 "v1.2.3" 前缀此前会原样去查 PyPI 导致 404 → 归一化后再查
-  · 元数据抓取改为可选线程池并发（--jobs），零第三方依赖，实测扫描提速约 8—10 倍
-
-v0.4.2 修正（第三方检查清单，逐条复现后修复）：
-  · CLI 与 Web 入口此前不做 monorepo 工作区内部包排除（只有 scan_projects.py
-    做了），与 README 宣称不符；现在两个入口都调用 split_workspace_deps。
-  · --out 不含 .md 时 Markdown 报告会被 JSON 静默覆盖。
-  · CLI 不跟随 -r 指针清单，纯指针文件会静默解析成 0 个依赖。
-  · 证据采集的依赖归属用子串匹配（torch 被 torchvision 命中）。
-  · Web 端未限制解压后规模，非法清单类型回 500 而非 400。
-  · rescan_failed.py 重建汇总时丢失 v0.4 新增字段、且重抓不带锁定版本。
-  · 代码注释里出现高于发布版本的版本标注（检查清单 P2-2）。
-
-v0.4.1 修正（第三方审查报告，逐条复现后修复）：
-  · 项目自身许可证未归一化就查 COMPAT_MATRIX，查不到便退化成空集合，
-    导致该项目下所有传染性依赖被逐条误报为冲突。matplotlib 的
-    "PSF-based"（本就等同 PSF-2.0）使其 3 个 MPL 依赖全被报中危。
-    → 新增 resolve_project_license()，先归一化再查表；矩阵确实未覆盖时
-      不再逐条下冲突结论，改为合成一条「无法判定」并点名涉及的依赖。
-  · 补入 Sustainable-Use-1.0（n8n 等项目自身使用的源码可得许可）。
+设计要点：
+  · 许可证来源按四级可信度取值：license_expression > Trove classifiers >
+    license 字段首行 > license 字段截断前 200 字符，并为每条结果标注来源与
+    可信度，非"高"的项明确要求人工复核
+  · 传染强度先分级（宽松 / 弱传染 / 强传染 / 网络传染 / 源码可得）再做矩阵
+    判断，而非逐对枚举——SPDX 有数百种许可证，逐对维护不现实
+  · 无版本号的写法一律归入 GPL-unknown / LGPL-unknown 并标注"具体版本待人工
+    确认"：宁可暴露不确定性，也不输出假装确定的结论
+  · 清单表的「使用方式」「自主开发边界」默认输出"待确认（未采集源码证据）"，
+    只有 semantic_audit.py 传入真实判定结果时才写入确定结论
 
 用法：
   python license_audit.py --requirements req.txt --project-license MIT
@@ -82,7 +40,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-VERSION = "0.4.2"
+VERSION = "0.4.3"
 
 
 def _force_utf8_stdio():
@@ -138,7 +96,7 @@ SPDX_PATTERNS = [
      "GPL-2.0-only"),
     (r"GNU (?:Library or Lesser|Lesser) General Public", "LGPL-unknown"),
     (r"GNU General Public", "GPL-unknown"),
-    # v0.3 增补：简写形态 "GNU LGPL 3.0" / "GNU GPL v3" 等。
+    # 简写形态 "GNU LGPL 3.0" / "GNU GPL v3" 等。
     # 上面的模式都以 "LGPL"/"GPL" 开头（^ 锚定）或以全称匹配，
     # 这类"GNU + 缩写 + 版本"的写法会直接落到家族兜底，丢掉版本号。
     # 实测 demjson3 的 license 字段正是 "GNU LGPL 3.0"。
@@ -148,12 +106,12 @@ SPDX_PATTERNS = [
     (r"GNU\s+LGPL\s*v?2\b", "LGPL-2.0-only"),
     (r"GNU\s+GPL\s*v?3", "GPL-3.0-only"),
     (r"GNU\s+GPL\s*v?2\b", "GPL-2.0-only"),
-    # v0.4 增补：Apache-1.1 必须排在通用 Apache 规则之前，否则
+    # Apache-1.1 必须排在通用 Apache 规则之前，否则
     # "Apache License 1.1" 会被通用规则判成 Apache-2.0（两者条款差异很大）。
     (r"^Apache[- ]?1\.1|^Apache[- ]?(Software )?License[- ]?v?1\.1", "Apache-1.1"),
     (r"^Apache[- ]?(Software )?License", "Apache-2.0"),
     (r"^Apache[- ]?2", "Apache-2.0"),
-    # v0.3 增补：只写裸家族名 "Apache"。Apache License 的 1.0/1.1/2.0 全部是
+    # 只写裸家族名 "Apache"。Apache License 的 1.0/1.1/2.0 全部是
     # 宽松许可，类别判定不受版本影响，因此这里归到最常见的 2.0。
     (r"^Apache$", "Apache-2.0"),
     (r"^MPL[- ]?v?[- ]?2", "MPL-2.0"),
@@ -161,7 +119,7 @@ SPDX_PATTERNS = [
     (r"^EPL[- ]?v?[- ]?2", "EPL-2.0"),
     (r"Eclipse Public", "EPL-2.0"),
     (r"^0BSD$", "0BSD"),
-    # v0.4 增补：实测 Bottleneck 的 license 字段只写 "Simplified BSD"，
+    # 实测 Bottleneck 的 license 字段只写 "Simplified BSD"，
     # 按生态里的通行用法即 BSD-2-Clause；FreeBSD 同为 2-Clause。
     (r"^Simplified BSD", "BSD-2-Clause"),
     (r"^FreeBSD", "BSD-2-Clause"),
@@ -173,17 +131,17 @@ SPDX_PATTERNS = [
     (r"^2[- ]?Clause BSD", "BSD-2-Clause"),
     # MIT-CMU（Pillow 等使用）必须在 MIT 之前匹配，否则会被通用 MIT 模式吃掉
     (r"^MIT[- ]CMU", "MIT-CMU"),
-    # v0.3 增补：MIT/X11 是极常见的写法，此前落在通用 MIT 模式之外被归为 UNKNOWN
+    # MIT/X11 是极常见的写法，此前落在通用 MIT 模式之外被归为 UNKNOWN
     (r"^MIT[/-]X11", "MIT"),
     (r"^MIT$|^MIT ", "MIT"),
     (r"^ISC$|^ISC ", "ISC"),
     (r"Python Software Foundation|^PSF", "PSF-2.0"),
-    # v0.3 增补：以下写法在真实生态里都不少见，此前一律落入 UNKNOWN
+    # 以下写法在真实生态里都不少见，此前一律落入 UNKNOWN
     (r"^(?:The\s+)?Unlicense", "Unlicense"),
     (r"^WTFPL", "WTFPL"),
     (r"^Artistic[- ]?2", "Artistic-2.0"),
     (r"^PostgreSQL", "PostgreSQL"),
-    # v0.4 修正：BSL-1.0 是 Boost Software License，而 BSL-1.1 是 Business Source
+    # BSL-1.0 是 Boost Software License，而 BSL-1.1 是 Business Source
     # License——两者前缀相同、条款完全相反（宽松 vs. 限制商业使用）。
     # 原写法 `BSL[- ]?1` 会把 BSL-1.1 一并吃掉并判成宽松许可，属于高危误判。
     (r"^(?:BSL[- ]?1(?![.\d])|BSL[- ]?1\.0|Boost Software)", "BSL-1.0"),
@@ -199,7 +157,7 @@ SPDX_PATTERNS = [
     (r"^BlueOak", "BlueOak-1.0.0"),          # npm 生态常见，rimraf 等包在用
     (r"^zlib", "Zlib"),
     # ------------------------------------------------------------------
-    # v0.4 增补：非 OSI / 源码可得许可，以及真实生态里高频但此前漏掉的写法。
+    # 非 OSI / 源码可得许可，以及真实生态里高频但此前漏掉的写法。
     # 这段必须放在 GPL/LGPL/AGPL 兜底规则之前，否则 "Server Side Public
     # License" 之类的写法会被裸家族兜底规则吃掉。
     # ------------------------------------------------------------------
@@ -207,7 +165,7 @@ SPDX_PATTERNS = [
     (r"^ZPL\b|Zope Public", "ZPL-2.1"),
     (r"^Elastic[- ]?(License )?2|Elastic License", "Elastic-2.0"),
     (r"^BUSL|^(?:BUSL|BSL)[- ]?1\.1|Business Source License", "BSL-1.1"),
-    # v0.4.1：n8n 等项目用作自身许可证的源码可得许可，此前落 UNKNOWN，
+    # n8n 等项目用作自身许可证的源码可得许可，此前落 UNKNOWN，
     # 连带使其在 COMPAT_MATRIX 中查不到，触发 H2 那类系统性误报。
     (r"^Sustainable Use", "Sustainable-Use-1.0"),
     (r"^SSPL|Server Side Public", "SSPL-1.0"),
@@ -248,7 +206,6 @@ LICENSE_DB = {
     "HPND":           ("permissive",        "保留版权与许可声明"),
     "MIT-CMU":        ("permissive",        "保留版权与许可声明（CMU 变体，与 HPND 同源）"),
     "BlueOak-1.0.0":  ("permissive",        "保留版权与许可声明，含明确的专利授权"),
-    # v0.3 增补的许可证
     "WTFPL":          ("permissive",        "无附加义务（许可证本身即宣告可随意处置）"),
     "Artistic-2.0":   ("permissive",        "保留版权与许可声明；修改版需以 Artistic-2.0 或兼容许可开放"),
     "PostgreSQL":     ("permissive",        "保留版权与许可声明（PostgreSQL/ISC 风格）"),
@@ -269,7 +226,7 @@ LICENSE_DB = {
     "LGPL-unknown":   ("weak-copyleft",     "动态链接可用；修改库本体需以 LGPL 开放（具体版本待人工确认）"),
     "AGPL-unknown":   ("network-copyleft",  "网络服务对外提供即触发源码开放义务（具体版本待人工确认）"),
     # ------------------------------------------------------------------
-    # v0.4 增补：知识库此前只收录 33 种，实测已造成真实漏判——
+    # 知识库此前只收录 33 种，实测已造成真实漏判——
     # zope.interface(ZPL-2.1)、arize-phoenix(Elastic-2.0)、
     # todomvc-app-css(CC-BY-4.0) 三个包的源站都给了明确许可证，
     # 工具却一律降级成 UNKNOWN。以下按 SPDX 标准标识补齐。
@@ -459,12 +416,12 @@ CATEGORY_CN = {
     "unknown": "未识别",
 }
 # 传染强度排序，用于复合表达式取最严格者。
-# v0.4 增补 source-available：源码能拿到，但附带商业使用限制。
+# source-available：源码能拿到，但附带商业使用限制。
 # 它比强传染更"严"——强传染只要求开源，源码可得许可是直接用不了，
 # 因此排在 network-copyleft 之后、unknown 之前。
 CATEGORY_RANK = {"permissive": 0, "weak-copyleft": 1, "strong-copyleft": 2,
                  "network-copyleft": 3, "source-available": 4, "unknown": 5}
-# 取不到类别时按 unknown 计，写死 4 会在 v0.4 之后错误地落到 source-available
+# 取不到类别时按 unknown 计，类别数增加时会错误地落到 source-available
 UNKNOWN_RANK = CATEGORY_RANK["unknown"]
 
 # 项目自身许可证 -> 允许的依赖类别（自主设计的兼容性矩阵）
@@ -479,7 +436,7 @@ UNKNOWN_RANK = CATEGORY_RANK["unknown"]
 #   · 强传染项目（GPL 系列）可引入 宽松 + 弱传染 + 强传染，不可引入网络传染；
 #   · 网络传染项目（AGPL）四类全收。
 #
-# v0.3 增补：此前矩阵只有 11 项，项目许可证取到表外值时
+# 此前矩阵只有 11 项，项目许可证取到表外值时
 # COMPAT_MATRIX.get(..., set()) 会返回空集合，静默退化成"任何传染性依赖都报冲突"，
 # 既误报又不可解释。现补齐全部内置标识，并对表外取值显式告警。
 _PERMISSIVE_PROJECT = {"permissive", "weak-copyleft"}
@@ -523,7 +480,7 @@ COMPAT_MATRIX = {
     "AGPL-3.0-only": _COPYLEFT_PROJECT | {"network-copyleft"},
     "AGPL-unknown": _COPYLEFT_PROJECT | {"network-copyleft"},
     "SSPL-1.0": _COPYLEFT_PROJECT | {"network-copyleft"},
-    # v0.4 增补：知识库扩容后同步补齐矩阵，避免这些标识作为项目自身许可证时
+    # 知识库扩容后同步补齐矩阵，避免这些标识作为项目自身许可证时
     # 静默退化成"任何传染性依赖都报冲突"
     "ZPL-2.1": _PERMISSIVE_PROJECT,
     "OFL-1.1": _PERMISSIVE_PROJECT,
@@ -559,7 +516,7 @@ MATRIX_NOT_COVERED_NOTICE = (
 def resolve_project_license(project_license):
     """把项目自身许可证归一到矩阵可查的规范标识；归一不到（矩阵未覆盖）返回 None。
 
-    v0.4.1 修正（审查报告 H2「兼容矩阵未覆盖引发系统性误报」）：
+    兼容矩阵未覆盖引发系统性误报的修正：
     此前直接用原始写法查 COMPAT_MATRIX。项目许可证往往写的是上游自称的
     非规范写法——matplotlib 的 pyproject 里写的就是 "PSF-based"，
     n8n 写的是 "Sustainable Use License"。这类写法查不到 → `get(..., set())`
@@ -584,7 +541,7 @@ def resolve_project_license(project_license):
 def matrix_notice(project_license):
     """项目许可证不在兼容性矩阵覆盖范围内时，返回一条显式提示；否则返回 None。
 
-    v0.3 增补：以前这种情况会静默退化为"任何传染性依赖都报冲突"，
+    以前这种情况会静默退化为"任何传染性依赖都报冲突"，
     使用者既不知道矩阵没覆盖，也不知道结论是怎么来的。
     """
     if not project_license:
@@ -650,7 +607,7 @@ def normalize_license(raw):
       · WITH：例外/附加条款不是独立许可证，只保留主许可证标识。
     输出字符串保留原始运算符，避免把 "MIT OR Apache-2.0" 误写成 AND。
 
-    v0.3 修正（WITH 会吃掉运算符）：
+    WITH 会吃掉运算符：
       丢弃 WITH 例外项时，必须把它自己的运算符交还给前一项。此前
       "Apache-2.0 WITH LLVM-exception AND MIT" 会被归一成 "Apache-2.0 MIT"——
       AND 被吞掉，输出不再是合法 SPDX 表达式（torch 的 license_expression
@@ -772,7 +729,7 @@ def _url_for(name, version, source):
 def prefetch(names, source, version_specs=None, jobs=1):
     """并发预热元数据缓存。
 
-    v0.3 增补：一次完整扫描要发出数百次网络请求，串行执行实测需十几分钟到半小时。
+    一次完整扫描要发出数百次网络请求，串行执行实测需十几分钟到半小时。
     这里用标准库 ThreadPoolExecutor 并发抓取，后续串行流程全部命中缓存，
     实测提速约 8—10 倍，且不引入任何第三方依赖。
     并发只作用于"网络等待"，解析与判定仍然是确定性的串行流程，结果与串行完全一致。
@@ -866,7 +823,7 @@ def resolve_license_pypi(info):
     （实测 pandas 达 61,643 字符），正文里会顺带提到 "GNU General Public
     License"，若做全文关键词匹配必然误判为 GPL。
 
-    v0.3 增补：高可信字段只给出家族名（*-unknown）时，用 license 字段补版本，
+    高可信字段只给出家族名（*-unknown）时，用 license 字段补版本，
     可信度降为"中"，并在字段来源里注明"补全版本"，便于人工复核。
     """
     lic = (info.get("license") or "").strip()
@@ -955,7 +912,7 @@ MAX_INCLUDE_FILES = 50     # 单次解析最多跟随的清单文件数
 def path_within(base, target):
     """target 解析后是否落在 base 目录内（跟随符号链接后再判定）。
 
-    v0.4.2：CLI 与 Web 都要跟随 `-r` 引用，而引用路径来自使用者提供的清单，
+    CLI 与 Web 都要跟随 `-r` 引用，而引用路径来自使用者提供的清单，
     必须做目录围栏——`p.parent / inc` 在 inc 为绝对路径时会被 pathlib 直接
     替换成该绝对路径，于是 `-r /etc/passwd` 可以读到清单目录之外的文件。
     web/server.py 复用本函数，避免两处各写一份判定。
@@ -973,7 +930,7 @@ def collect_requirement_files(path, include_root=None):
 
     真实项目的 requirements.txt 常常只是一个指针文件（内容就一行
     `-r requirements/runtime.txt`）。不跟随就只能解析出 0 个依赖，而且不报错
-    ——用户会以为项目真的没有依赖。v0.4.2 起 CLI 与此前已实现跟随的
+    ——用户会以为项目真的没有依赖。现在 CLI 与此前已实现跟随的
     scan_projects.py / web 端行为一致。
 
     返回 (文件列表, 提示列表)：文件列表含自身，按引用顺序去重；
@@ -1057,7 +1014,7 @@ def parse_requirements_verbose(path, include_root=None, notes=None, follow=True)
     版本约束会去除 [extras] 与环境标记（; python_version ...），
     供后续按锁定版本精确查询许可证元数据。
 
-    v0.4.2：默认跟随 -r / --requirement 引用。此前 CLI 入口对 `-r` 开头的行
+    默认跟随 -r / --requirement 引用。此前 CLI 入口对 `-r` 开头的行
     直接跳过（web 与 scan_projects 却已实现跟随），同一份清单换个入口就得到
     不同结果。`include_root` 指定允许的引用范围，默认取清单自身所在目录；
     web 端传入解压目录以保持原有围栏。`notes` 传入列表时追加可读提示。
@@ -1403,7 +1360,7 @@ def _exact_version(spec):
         v = s
     if not v or "*" in v or "," in v or " " in v or "<" in v or ">" in v or "~" in v or "^" in v:
         return None
-    # v0.3 增补：去掉 v/V 前缀。此前 "v1.2.3" 会被原样拿去查 PyPI，
+    # 去掉 v/V 前缀。此前 "v1.2.3" 会被原样拿去查 PyPI，
     # 命中 404 后被误报为"无法获取元数据"，而不是回退查最新版。
     if len(v) > 1 and v[0] in "vV" and v[1].isdigit():
         v = v[1:]
@@ -1443,7 +1400,7 @@ def detect_conflicts(project_license, records, transitive_limit=0):
 
         if cat == "unknown":
             low = r.get("confidence") in ("低", "无")
-            # v0.4：同样是"没认出来"，性质完全不同，处理建议也不同——
+            # 同样是"没认出来"，性质完全不同，处理建议也不同——
             # 源站压根没填 → 只能人工补；知识库没收录 → 补知识库就能修好。
             kind = classify_unknown(r) or "NO_METADATA"
             findings.append({
@@ -1565,7 +1522,7 @@ def audit(packages, project_license="MIT", source="PyPI", depth=0,
     return records, detect_conflicts(project_license, records, transitive_limit)
 
 
-# 未做源码证据判定时的占位结论。v0.3 起不再默认写"作为库调用（未修改源码）"：
+# 未做源码证据判定时的占位结论。不再默认写"作为库调用（未修改源码）"：
 # 那等于在没有证据的情况下假装确定，与本工具"宁可显式暴露不确定性"的原则相悖，
 # 也与 README「已知限制」里"源码不在本地时相关字段标为待确认"的说法矛盾。
 PENDING_USAGE = "待确认（未采集源码证据）"
@@ -1592,7 +1549,7 @@ def to_checklist_table(records, judgments=None):
         j = judgments.get(r["name"]) or {}
         usage = j.get("使用方式") or PENDING_USAGE
         boundary = j.get("自主开发边界") or PENDING_BOUNDARY
-        # v0.4：非 OSI / 带附加限制的许可，把"这个许可本身有什么坑"写进义务列，
+        # 非 OSI / 带附加限制的许可，把"这个许可本身有什么坑"写进义务列，
         # 否则使用者只知道许可证名字，看不出商业风险。
         obs = obligations_of(r["spdx"])
         cn = commercial_note(r["spdx"])
@@ -1686,7 +1643,7 @@ def render_report(project_name, project_license, records, findings, locked=0):
 def report_paths(out):
     """由 --out 推导 (Markdown 报告路径, JSON 报告路径)，两者必定不同。
 
-    v0.4.2：此前 JSON 路径写作 out.replace(".md", ".json")。输出名不含 ".md" 时
+    此前 JSON 路径写作 out.replace(".md", ".json")。输出名不含 ".md" 时
     该替换不生效，两条路径指向同一个文件，Markdown 正文被 JSON 静默覆盖
     （`--out out.txt` → 只剩 JSON，终端还打印两个相同路径）。现在只在确实以
     .md 结尾时替换后缀，否则追加 .json，从根上排除同名覆盖。
@@ -1742,7 +1699,7 @@ def main():
             if not path.exists():
                 ap.error(f"依赖清单不存在：{a.package_json}")
             vpkgs = parse_package_json_verbose(path)
-            # v0.4.2：CLI 此前不做工作区排除，monorepo 的内部包会被当成第三方
+            # CLI 此前不做工作区排除，monorepo 的内部包会被当成第三方
             # 依赖去查 npm，查不到就记「源站无此包」并报中危——与 README 宣称的
             # 「已按 workspace: 标记识别并排除」不符（检查清单 P1-1）。
             vpkgs, ws_deps = exclude_workspace_deps(vpkgs)
@@ -1795,7 +1752,7 @@ def main():
     hi = sum(1 for f in findings if f["level"] == "高")
     print(f"[4/4] 检出风险项：{len(findings)} 条（高 {hi} / 中 {len(findings)-hi}）")
 
-    # v0.4：把"未识别"拆开说清楚。97.8% 这种单一数字既惩罚了工具无能，
+    # 把"未识别"拆开说清楚。97.8% 这种单一数字既惩罚了工具无能，
     # 也惩罚了源站没数据；拆开之后才知道该补知识库还是该去人工核对。
     ub = unknown_breakdown(records)
     if sum(ub.values()):

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 test_cases.py — license_audit 回归测试用例集
@@ -220,7 +220,7 @@ f = detect_conflicts("MIT", [mk("ghost", "UNKNOWN", conf="无", field="无", sta
 check("B8", "元数据缺失的依赖应报中危", levels(f, "ghost"), ["中"])
 
 # B9 项目自身许可证不在矩阵中（如自定义/专有许可证）。
-# v0.4.1 起语义变更（审查报告 H2）：此前对这类项目许可证按空集合处理，
+# 语义变更（审查报告 H2）：此前对这类项目许可证按空集合处理，
 # 于是把每个传染性依赖逐条报成"冲突"——但我们并不知道该许可证与这些
 # 传染许可的兼容关系，那条结论是没有依据的。matplotlib（PSF-based）
 # 的 3 条 MPL 误报就是这么来的。
@@ -339,7 +339,7 @@ check("C11", "npm 范围写法不应被当作精确版本", _exact_version("^1.2
 
 # ============================================================ D. 兼容性矩阵覆盖
 
-print("\nD. 兼容性矩阵覆盖（v0.3 修复：矩阵外取值不再静默误报）")
+print("\nD. 兼容性矩阵覆盖（矩阵外取值不再静默误报）")
 
 from license_audit import (COMPAT_MATRIX, matrix_notice, CATEGORY_RANK,
                            LICENSE_DB, to_checklist_table, PENDING_USAGE,
@@ -412,9 +412,9 @@ check("D22", "项目许可证为空时也应给出提示",
 
 # ============================================================ E. 版本约束与锁定
 
-print("\nE. 版本约束提取（v0.3 修复：v 前缀不再导致误报 404）")
+print("\nE. 版本约束提取（v 前缀不再导致误报 404）")
 
-# E1-E4 v0.3 修复：以前 "v1.2.3" 会被原样拿去查 PyPI，命中 404 后被误报为
+# E1-E4 以前 "v1.2.3" 会被原样拿去查 PyPI，命中 404 后被误报为
 #        "无法获取元数据"，而不是回退查最新版。
 check("E1", '"v1.2.3" 应归一化为 "1.2.3"', _exact_version("v1.2.3"), "1.2.3")
 check("E2", '"=v1.2.3" 应归一化为 "1.2.3"', _exact_version("=v1.2.3"), "1.2.3")
@@ -444,7 +444,7 @@ check("E14", "requirements.txt 精确锁定应可识别",
 
 # ============================================================ F. 清单表诚实性
 
-print("\nF. 清单表诚实性（v0.3 修复：不再臆断使用方式）")
+print("\nF. 清单表诚实性（不再臆断使用方式）")
 
 
 def _rec(name, spdx, status="OK", conf="高", field="license_expression"):
@@ -453,7 +453,7 @@ def _rec(name, spdx, status="OK", conf="高", field="license_expression"):
             "deps": [], "status": status}
 
 
-# F1-F3 v0.3 修复：以前无论有没有源码证据，清单表都把「使用方式」硬编码为
+# F1-F3 以前无论有没有源码证据，清单表都把「使用方式」硬编码为
 #        "作为库调用（未修改源码）"、"自主开发边界"硬编码为"未修改，仅调用公开 API"，
 #        等于在没有证据时假装确定，也与 README 已知限制自相矛盾。
 _t = to_checklist_table([_rec("requests", "Apache-2.0")])
@@ -518,7 +518,7 @@ check("G14", '"LGPLv3"（无连字符）→ LGPL-3.0-only',
 check("G15", '"GPLv2"（无连字符）→ GPL-2.0-only',
       normalize_license("GPLv2"), "GPL-2.0-only")
 
-# G16-G24 v0.3 增补：以下写法在真实生态里都不少见，此前一律落入 UNKNOWN
+# G16-G24 以下写法在真实生态里都不少见，此前一律落入 UNKNOWN
 check("G16", '"MIT/X11"（极常见写法）→ MIT',
       normalize_license("MIT/X11"), "MIT")
 check("G17", '"The Unlicense"（带定冠词）→ Unlicense',
@@ -578,9 +578,14 @@ check("G34", "UNKNOWN 与已知项 OR 时应取已知项的类别",
       category_of("MIT OR SomeUnknownThing"), "permissive")
 
 # G35 版本号暴露（报告里要能追溯到工具版本）
-# v0.4.1：与 pyproject.toml 的 version 统一——此前代码写 "0.4"、
+# 与 pyproject.toml 的 version 统一——此前代码写 "0.4"、
 # pyproject 写 "0.3.0"、CHANGELOG 写 "0.4.0"，三处互不相同（审查报告 L1）。
-check("G35", "工具版本应为 0.4.2", VERSION, "0.4.2")
+# 改为只校验格式，不再硬编码具体版本——否则每次发版都得回来改测试，
+# 等于把"文档数字漂移"换个地方重演。跨文件一致性由 N22（与 pyproject.toml
+# 一致）和 check_docs_consistency.py（与 CHANGELOG / scan_summary 一致）负责。
+_G35_PARTS = VERSION.split(".")
+check("G35", "工具版本应为三段式语义化版本号",
+      len(_G35_PARTS) == 3 and all(p.isdigit() for p in _G35_PARTS), True)
 
 
 # ============================================================ J. monorepo 工作区内部依赖
@@ -624,7 +629,7 @@ check("J7", "混合清单应正确分离且保持原有顺序",
 check("J8", "空清单不应报错", split_workspace_deps([]), ([], []))
 
 
-# ============================================================ K. 许可证知识库扩容（v0.4）
+# ============================================================ K. 许可证知识库扩容（）
 # 来源：核对报告实测。仓库 LICENSE_DB 只收录 33 种，已造成真实漏判——
 # zope.interface(ZPL-2.1)、arize-phoenix(Elastic-2.0)、
 # todomvc-app-css(CC-BY-4.0) 的源站都给了明确许可证，工具却一律判 UNKNOWN。
@@ -686,7 +691,7 @@ check("K21", "源码可得许可的风险说明里应点出限制内容",
 check("K22", "复合表达式中源码可得项应按最严格项判定",
       category_of("MIT AND Elastic-2.0"), "source-available")
 
-# K23 v0.4 新增类别必须能参与排序，且 unknown 仍是最严的
+# K23 类别必须能参与排序，且 unknown 仍是最严的
 check("K23", "新增类别后 unknown 仍排在最严位置",
       CATEGORY_RANK["unknown"] > CATEGORY_RANK["source-available"]
       > CATEGORY_RANK["network-copyleft"], True)
@@ -699,7 +704,7 @@ check("K25", '"FreeBSD" 同为 BSD-2-Clause',
       normalize_license("FreeBSD"), "BSD-2-Clause")
 
 
-# ============================================================ L. 未识别项归因（v0.4）
+# ============================================================ L. 未识别项归因（）
 # 来源：核对报告 3.2。此前所有"没认出来"统一记为 UNKNOWN 并计入未识别，
 # 导致 97.8% 这个识别率同时惩罚了「工具无能」和「源站没数据」两种性质，
 # 既不能指导改进也不能对外解释。现在按四种性质分开统计。
@@ -779,7 +784,7 @@ check("L16", "占位值的处理建议应指向人工核对上游 LICENSE 文件
                    "deps": [], "status": "OK"}])), True)
 
 
-# ============================================================ M. 跨 Python 版本一致性（v0.4）
+# ============================================================ M. 跨 Python 版本一致性（）
 # 来源：CI。补回 split_workspace_deps 之后测试终于能跑起来，第一次全矩阵执行
 # 就暴露出两个此前被 ImportError 掩盖的既有缺陷：
 #   · Windows 三个 job：控制台默认 cp1252，打印中文直接 UnicodeEncodeError
@@ -878,7 +883,7 @@ check("M9", "守卫执行后 stdout 编码应为 UTF-8（Windows 控制台不再
       "utf8")
 
 
-# ============================================================ N. 审查报告问题修复（v0.4.1）
+# ============================================================ N. 审查报告问题修复（）
 # 来源：对 v0.4 的第三方审查报告，逐条复现后确认成立的问题。
 #   H2 项目许可证未归一化就查兼容矩阵 → matplotlib 场景 3 条系统性误报
 #   M1 Web 端 -r 引用可携带绝对路径 → 任意文件读取
@@ -1041,7 +1046,7 @@ except Exception as _e:                                  # pragma: no cover
         check(_cid, f"打包配置自检（异常跳过：{type(_e).__name__}）", "skipped", "skipped")
 
 
-# ============================================================ O. 检查清单问题修复（v0.4.2）
+# ============================================================ O. 检查清单问题修复（）
 # 来源：第三方《仓库问题检查清单》，11 项逐条复现后确认成立。
 #   P1-1 CLI/Web 入口未排除 monorepo 工作区内部包
 #   P1-2 --out 不含 .md 时 JSON 报告覆盖 Markdown 报告
@@ -1264,6 +1269,122 @@ for _f in sorted((_Path(__file__).parent).glob("*.py")) + \
             _O_AHEAD.append(f"{_f.name}:v{_m.group(1)}")
 check("O26", "源码与打包配置里不得出现高于 VERSION 的变更标注",
       sorted(set(_O_AHEAD)), [])
+
+
+# ============================================================ P. 抽查脚本抓取状态区分（）
+# 来源：本机对 pypi.org 间歇可达。实测同一批抽样里 `tqdm` 两次取到
+#   `MPL-2.0 AND MIT`、另三次却报"源站无此包"；`Jinja2` / `MarkupSafe`
+#   等 PyPI 上的常见包同样被报成不存在——单独 curl 得到的是连接失败 000，
+#   根本不是 404。根因是 `upstream_values` 用 `except Exception: return None`
+#   把所有异常吞平，调用方再把 None 读作"源站无此包"：网络抖动被说成源站的
+#   问题，而且每次运行结果都不同——**不可复现的数字比没有数字更糟**。
+# 主程序 `license_audit.py` 早已用 `status` 区分 NOT_FOUND / FETCH_ERROR，
+# 这里守护抽查脚本对齐同一套语义：三态必须分得开。
+
+import urllib.error as _ue
+import subprocess as _sp
+from unittest.mock import patch as _patch
+from verify_sample import (_fetch_json, upstream_values, is_unknown,
+                           stratify)
+
+print("\nP. 抽查脚本抓取状态区分（源站无此包 / 网络失败 / 成功）")
+
+
+class _PResp:
+    """urlopen 响应替身，够 _fetch_json 用即可。"""
+
+    def __init__(self, body):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _p_fetch(exc=None, body=b'{"info": {}}'):
+    def _fake(req, timeout=None):
+        if exc is not None:
+            raise exc
+        return _PResp(body)
+    with _patch("urllib.request.urlopen", _fake):
+        return _fetch_json("https://example.invalid/x")
+
+
+# P1 只有 404 才能下"源站无此包"这个结论
+check("P1", "HTTP 404 应判为 not_found（包确实不存在）",
+      _p_fetch(_ue.HTTPError("u", 404, "Not Found", {}, None))[0], "not_found")
+
+# P2-P4 网络类失败一律 fetch_failed，绝不能混进 not_found
+check("P2", "连接失败应判为 fetch_failed，不得当作源站无此包",
+      _p_fetch(_ue.URLError("connection reset by peer"))[0], "fetch_failed")
+check("P3", "读取超时应判为 fetch_failed",
+      _p_fetch(TimeoutError("timed out"))[0], "fetch_failed")
+check("P4", "HTTP 429 限流应判为 fetch_failed（重跑即可，不是包不存在）",
+      _p_fetch(_ue.HTTPError("u", 429, "Too Many Requests", {}, None))[0],
+      "fetch_failed")
+
+# P5 正常响应仍要能解出 payload——修不能把好路走坏
+check("P5", "正常响应应判为 ok 并解出 JSON",
+      _p_fetch(body=b'{"info": {"license": "MIT"}}'),
+      ("ok", {"info": {"license": "MIT"}}))
+
+# P6 状态必须透传到调用方，不能中途被压成"空值"
+with _patch("verify_sample.fetch_pypi", lambda n, v=None: ("fetch_failed", None)):
+    _P6 = upstream_values({"name": "Jinja2", "source": "PyPI",
+                           "version": None, "spdx": "BSD-3-Clause"})
+check("P6", "抓取失败时 upstream_values 应原样透传 fetch_failed",
+      _P6, ("fetch_failed", None))
+
+# P7 源码守护：不得再退回"所有异常一律返回 None"的写法
+_P7_SRC = (_Path(__file__).with_name("verify_sample.py")).read_text(
+    encoding="utf-8", errors="replace")
+check("P7", "verify_sample.py 不应再有把所有异常吞成 None 的分支",
+      "except Exception:\n        return None" in _P7_SRC, False)
+
+# P8-P10 分层抽样必须真的能抽到「未识别」层
+# 未识别的值是**字符串** "UNKNOWN" 而非空值——实测库里 spdx 为 None 的有 0 条、
+# spdx == "UNKNOWN" 的有 19 条。只判 falsy 会让"未识别层"永远抽到 0 条，
+# 而它恰恰是抽查最该审视的一层：工具说"认不出来"，是否真的认不出来。
+check("P8", 'spdx == "UNKNOWN"（字符串）应判为未识别',
+      is_unknown({"spdx": "UNKNOWN"}), True)
+check("P8b", "空串与 None 也应判为未识别",
+      [is_unknown({"spdx": v}) for v in ("", None)], [True, True])
+check("P8c", "已识别的许可证不应被判为未识别",
+      [is_unknown({"spdx": v}) for v in ("MIT", "GPL-3.0-only")], [False, False])
+
+_P9_ROWS = ([("p%d" % i, {"name": "ok%d" % i, "spdx": "MIT"})
+             for i in range(30)]
+            + [("c%d" % i, {"name": "copyleft%d" % i, "spdx": "GPL-3.0-only"})
+               for i in range(30)]
+            + [("u%d" % i, {"name": "unk%d" % i, "spdx": "UNKNOWN"})
+               for i in range(30)])
+_P9 = stratify(_P9_ROWS, 30, 20260924)
+check("P9", "分层抽样必须抽到未识别项（修复前该层恒为 0 条）",
+      sum(1 for _p, r in _P9 if r["spdx"] == "UNKNOWN"), 10)
+
+# 抽全量时，UNKNOWN 记录只应来自未识别层一次——若已识别层也放行，
+# 这里会数出两倍，正是修复前的行为
+_P10 = [r for _p, r in stratify(_P9_ROWS, 300, 1) if is_unknown(r)]
+check("P10", "未识别记录只应计入未识别层一次（不得被已识别层重复纳入）",
+      len(_P10), 30)
+
+# P11 被 import 的模块级脚本不得解析宿主脚本的命令行参数
+# recompute_scan.py 列在 pyproject 的 py-modules 里，会被**别人的进程** import
+# （N26 打包自检就会）。它原先在**模块层**调用 parse_args()，于是
+# `python test_cases.py -v` 的 -v 被它抢去解析：
+#     test_cases.py: error: unrecognized arguments: -v    ← 退出码 2
+# 263 个用例因此只跑到第 224 个中断，-v 模式（文档写明的用法）完全不可用。
+_P11 = _sp.run(
+    [sys.executable, "-c", "import recompute_scan", "--bogus-flag"],
+    cwd=str(_Path(__file__).parent), capture_output=True, text=True,
+    encoding="utf-8", errors="replace")
+check("P11", "import recompute_scan 不得解析宿主脚本的命令行参数",
+      _P11.returncode, 0)
 
 
 # ============================================================ 汇总

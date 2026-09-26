@@ -11,7 +11,7 @@ rescan_failed.py — 对已有扫描报告中抓取失败的条目重新抓取�
   · NOT_FOUND   → 包确实不在该生态，保持原样
   · FETCH_ERROR → 网络问题，应当重试
 
-v0.3 修正（可复现性）：
+（可复现性）：
   · 报告来源不再只认 scan/*.report.json（该目录已被 .gitignore 排除，
     拿到源码的人没法复现）。现在会同时扫描
     --reports 指定目录、scan/ 目录，以及 05_佐证材料 下的"逐项目报告"目录，
@@ -100,7 +100,7 @@ def load_prev_summary():
 def build_row(report, prev_row=None):
     """由一个项目报告构建汇总行；prev_row 存在时保留与判定逻辑无关的字段。
 
-    v0.4.2：此前 rescan_failed.py 整份重建汇总行，把 scan_projects.py 写入的
+    此前 rescan_failed.py 整份重建汇总行，把 scan_projects.py 写入的
     ecosystem / manifest / workspace_excluded 全丢了；现在以既有行为基底再更新，
     并补齐 scan_projects.py 同口径的未识别归因与双口径识别率。
     """
@@ -193,7 +193,7 @@ def main():
         for r in need:
             ok = False
             for i in range(a.rounds):
-                # v0.4.2：带上记录里的 requested_version。此前固定抓最新版，
+                # 带上记录里的 requested_version。此前固定抓最新版，
                 # 回填后同一项目里"按锁定版本查"的条目会退化成"按最新版查"，
                 # 与原报告口径不一致（历史上确实发生过：mysqlclient 的
                 # GPL-2.0-or-later / -only 差异就是这么来的）。
@@ -221,7 +221,7 @@ def main():
 
     # 重新汇总。
     # 先读既有 scan_summary.json 作为基底：重扫只应"更新"汇总，不应让它降级——
-    # v0.4.2 之前这里整份重建，跑一次 rescan_failed.py 就会把 scan_projects.py
+    # 此前这里整份重建，跑一次 rescan_failed.py 就会把 scan_projects.py
     # 写的字段（ecosystem / manifest / workspace_excluded / 归因统计）全丢掉。
     prev = load_prev_summary()
     prev_rows = {r.get("project"): r for r in (prev.get("per_project") or [])

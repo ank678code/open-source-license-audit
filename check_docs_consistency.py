@@ -15,7 +15,7 @@ check_docs_consistency.py — 文档 / 配置里的声明必须与代码实际�
   2. 扫描数据   —— README 声明的项目数 / 依赖数 / 识别率 / 高可信 / 风险项
      / 传染性项目 / 工作区内部包数，必须与 scan_summary.json 一致；
   3. 版本号     —— VERSION == pyproject.toml == CHANGELOG 首个版本段
-     == scan_summary.json 的 tool_version。
+     == scan_summary.json 的 tool_version == README.md 的「当前版本」。
 
 **宽松匹配**：只在文档里**找到**该声明时才比对数值；若文档被改写掉某条声明，
 不报错（不强迫文档必须怎么写），只在该声明存在且数值不符时报错。
@@ -127,9 +127,13 @@ def check_versions():
     ver_ch = m.group(1) if m else None
     sp = HERE / "scan_summary.json"
     ver_scan = json.loads(sp.read_text(encoding="utf-8"))["tool_version"] if sp.exists() else None
+    m = re.search(r"\*\*当前版本 v([\d.]+)\*\*",
+                  (HERE / "README.md").read_text(encoding="utf-8-sig"))
+    ver_readme = m.group(1) if m else None
 
     seen = {"license_audit.py VERSION": ver_code, "pyproject.toml": ver_pp,
-            "CHANGELOG 首段": ver_ch, "scan_summary.json": ver_scan}
+            "CHANGELOG 首段": ver_ch, "scan_summary.json": ver_scan,
+            "README.md 当前版本": ver_readme}
     uniq = set(seen.values())
     if len(uniq) != 1 or None in uniq:
         err("版本号不一致：" + "，".join(f"{k}={v}" for k, v in seen.items()))

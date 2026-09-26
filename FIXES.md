@@ -918,3 +918,57 @@ _A = (_build_parser().parse_args() if __name__ == "__main__"
 **改动文件**：`verify_sample.py`、`test_cases.py`、`license_audit.py`（仅 VERSION）、
 `pyproject.toml`、`scan_summary.json`、`scan_summary.md`、`README.md`、
 `CONTRIBUTING.md`、`CHANGELOG.md`、`FIXES.md`、`verify_sample.md`
+
+## 十五、按第三方《仓库 README 问题检查清单》核验（v0.4.3 补充）
+
+清单列 8 项（核心 2 / 许可证标注冲突 4 / 小问题 2），逐条与线上 `main` 对照。
+
+### 15.1 六项不成立：清单读到的是过期缓存
+
+R1（8 项目 / 316 依赖 / 96.5% / 83.2% / 7 of 8）、R2（39 + 36 = 75 用例）、
+R4（`func-timeout` LGPL-3.0）、R5（缺 `-only` 后缀）、R6（三个项目的旧批次数字）
+描述的**都是 2026-09-23 13:55 那一版 README**，而它在 **09-23 22:07** 就被
+26 项目体系替换掉了。
+
+清单自身留下了矛盾证据：它同时引用了**当前**的 `scan_projects.py`
+（REPOS 实测 26 项）与 `pyproject.toml`（`0.4.3`），又引用了**三天前**的
+README——同一个 commit 不可能共存，只能是 README 那一份命中了 CDN 缓存。
+
+核验方式：按 API 取当前 ref 指向的内容（带 `Cache-Control: no-cache`），
+并与仓库完整历史里各版本的对应内容逐项比对，确认它到底匹配哪一版。
+逐项目表做了**机器比对**：26 行的依赖数 / 识别率 / 高可信**全一致**，
+表内 **27 项**许可证标注**全一致**。
+
+### 15.2 一项部分成立：「输出示例」表仍是旧误判的值
+
+README 三处 `fuzzywuzzy` 中，开头示例与实测数据表都是 `GPL-2.0-only`，
+只有「输出示例」表还是 `GPL-3.0-only`。这不是标注风格问题——它是**工具已经
+不再产生**的值：
+
+- 扫描记录里该包的 `license_raw` 是 trove 的
+  `GNU General Public License v2 (GPLv2)`，归一化结果为 `GPL-2.0-only`
+- 仓库自己的 **G26 用例**断言"应判定为 GPL-2.0-only"
+- README 第 261 行也把"fuzzywuzzy 被误判为 GPL-3.0"列为**已修正**的旧误判
+- 技术报告表 4-6 写的是 `GPL-2.0-only`，两处就此打架
+
+### 15.3 两项成立
+
+- **README 未标注当前版本**（R7）：通篇无版本行、无徽章，读者无法判断文档
+  对应哪个版本。现加「当前版本 v0.4.3」，并**纳入一致性闸门**——README 是最
+  容易被读到的一处，却恰恰不在原先那四处版本核对范围内。
+- **`pyproject.toml` 注释带 `v0.4.1` 前缀**（R8）：注释本身事实正确
+  （CHANGELOG 的 `[0.4.1]` 段确实收录了「打包入口补齐」L3），改动只为与源码
+  注释整理保持一致。
+
+### 15.4 本轮验证
+
+| 检查项 | 结果 |
+|---|---|
+| `python test_cases.py` | **264 / 264 通过** |
+| `python test_semantic.py` | **95 / 95 通过** |
+| `python check_docs_consistency.py` | 全部一致（版本号 0.4.3，**新增 README 一处核对**） |
+| `pyflakes` | 零告警 |
+| README 逐项目表 vs `scan_summary.json` | 26 行全一致；表内 27 项许可证标注全一致 |
+
+**改动文件**：`README.md`、`pyproject.toml`、`check_docs_consistency.py`、
+`CHANGELOG.md`、`FIXES.md`

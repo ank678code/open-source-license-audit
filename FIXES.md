@@ -843,13 +843,74 @@ spdx == "UNKNOWN"  19
 现改为只校验三段式格式；跨文件一致性交给 `N22`（与 `pyproject.toml` 一致）
 和 `check_docs_consistency.py`（与 `CHANGELOG` / `scan_summary` 一致）。
 
-### 14.4 本轮验证
+### 14.4 被 import 的脚本在模块层解析命令行参数（v0.4.2 引入）
+
+**这一条是更新提交材料时才暴露的**：重新生成测试佐证时，脚本报告解析到
+`test_cases.py 224 个`，而实际是 264 个。追下去发现 `-v` 模式下
+`test_cases.py` 中途以**退出码 2** 终止，且**没有任何堆栈输出**。
+
+**复现**：
+
+```
+$ python test_cases.py -v
+...
+  PASS  [N25] web 包应有 __init__.py
+        判定 = True
+usage: test_cases.py [-h] [--data DATA] [--code CODE] [--dry-run]
+test_cases.py: error: unrecognized arguments: -v
+$ echo $?
+2
+```
+
+注意报错的 `usage` 行写的是 `test_cases.py`，但参数列表
+（`--data` / `--code` / `--dry-run`）**根本不是 test_cases.py 的**。
+
+**根因**：`recompute_scan.py`（v0.4.2 新增并列入 `py-modules`）在**模块层**
+调用了 `parse_args()`：
+
+```python
+# recompute_scan.py（修复前）
+_ap = argparse.ArgumentParser(description="离线重算历史扫描数据")
+_ap.add_argument("--data", ...)
+_ap.add_argument("--code", ...)
+_ap.add_argument("--dry-run", ...)
+_A = _ap.parse_args()          # ← 零缩进：import 即执行
+```
+
+而 `test_cases.py` 的 N26 用例（打包自检：console scripts 的目标函数都应可导入）
+会用 `importlib` 导入它。于是 argparse 去解析**宿主脚本**的 `sys.argv`，
+看到 `-v` 便报 "unrecognized arguments" 并 `sys.exit(2)`。
+
+**影响**：
+- 文档里写明的 `python test_cases.py -v` **完全不可用**，264 个用例只跑到
+  第 224 个（`-v` 与不带参数两种模式的用例数差了 40 个）
+- 佐证材料的用例矩阵因此少了 39 条（正是 O 组 26 + P 组 12 + N21b 1）
+- 任何 `import recompute_scan` 的场景都会受宿主脚本参数影响
+
+**为什么此前没被发现**：`python test_cases.py`（不带参数）时 `sys.argv`
+只有脚本名，argparse 对三个可选参数都取默认值，**恰好正常**——
+只有传了它不认识的参数才会炸，而 CI 跑的正是不带参数的形式。
+
+**修复**：参数解析只在作为主程序时发生，被 import 时取默认值。
+
+```python
+_A = (_build_parser().parse_args() if __name__ == "__main__"
+      else argparse.Namespace(data=str(Path(__file__).parent),
+                              code=None, dry_run=False))
+```
+
+新增 P11 用例守护：在子进程里带一个本模块不认识的参数 import 它，断言退出码为 0。
+
+**同类风险排查**：`rescan_failed.py` / `scan_projects.py` / `verify_sample.py`
+的 `parse_args()` 都已在 `main()` 内部，只有 `recompute_scan.py` 存在该问题。
+
+### 14.5 本轮验证
 
 | 检查项 | 结果 |
 |---|---|
-| `python test_cases.py` | **263 / 263 通过**（新增 P 组 12 个） |
+| `python test_cases.py` | **264 / 264 通过**（新增 P 组 13 个） |
 | `python test_semantic.py` | **95 / 95 通过** |
-| 合计 | **358 个用例** |
+| 合计 | **359 个用例** |
 | `python check_docs_consistency.py` | 全部一致（版本号 0.4.3） |
 | 抽查脚本实跑 | 三态分开计数；抽样恢复为 40 条；未识别层可见 |
 | 扫描数据 | `recompute_scan.py` 离线重算后盖戳 0.4.3，**判定结果零变化** |

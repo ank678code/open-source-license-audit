@@ -1282,6 +1282,7 @@ check("O26", "源码与打包配置里不得出现高于 VERSION 的变更标注
 # 这里守护抽查脚本对齐同一套语义：三态必须分得开。
 
 import urllib.error as _ue
+import subprocess as _sp
 from unittest.mock import patch as _patch
 from verify_sample import (_fetch_json, upstream_values, is_unknown,
                            stratify)
@@ -1371,6 +1372,19 @@ check("P9", "分层抽样必须抽到未识别项（修复前该层恒为 0 条�
 _P10 = [r for _p, r in stratify(_P9_ROWS, 300, 1) if is_unknown(r)]
 check("P10", "未识别记录只应计入未识别层一次（不得被已识别层重复纳入）",
       len(_P10), 30)
+
+# P11 被 import 的模块级脚本不得解析宿主脚本的命令行参数
+# recompute_scan.py 列在 pyproject 的 py-modules 里，会被**别人的进程** import
+# （N26 打包自检就会）。它原先在**模块层**调用 parse_args()，于是
+# `python test_cases.py -v` 的 -v 被它抢去解析：
+#     test_cases.py: error: unrecognized arguments: -v    ← 退出码 2
+# 263 个用例因此只跑到第 224 个中断，-v 模式（文档写明的用法）完全不可用。
+_P11 = _sp.run(
+    [sys.executable, "-c", "import recompute_scan", "--bogus-flag"],
+    cwd=str(_Path(__file__).parent), capture_output=True, text=True,
+    encoding="utf-8", errors="replace")
+check("P11", "import recompute_scan 不得解析宿主脚本的命令行参数",
+      _P11.returncode, 0)
 
 
 # ============================================================ 汇总

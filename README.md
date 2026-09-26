@@ -35,23 +35,23 @@
 
 | 项目 | 自身许可 | 生态 | 依赖数 | 识别率 | 高可信 | 检出的传染性依赖 |
 |---|---|---|---|---|---|---|
-| infiniflow/ragflow | Apache-2.0 | PyPI | 70 | 92.9% | 77.1% | `demjson3`(LGPL-3.0-only), `es-core-news-sm`(GPL-3.0-only), `extract-msg`(GPL-unknown) 等 5 个 |
+| infiniflow/ragflow | Apache-2.0 | PyPI | 70 | 94.3% | 78.6% | `demjson3`(LGPL-3.0-only), `es-core-news-sm`(GPL-3.0-only), `extract-msg`(GPL-unknown) 等 5 个 |
 | NVIDIA/NeMo | Apache-2.0 | PyPI | 70 | 95.7% | 90.0% | — |
 | EleutherAI/lm-evaluation-harness | MIT | PyPI | 70 | 98.6% | 82.9% | `fuzzywuzzy`(GPL-2.0-only), `kstar-planner`(GPL-3.0-only), `pycountry`(LGPL-2.1-only) 等 4 个 |
-| apache/airflow | Apache-2.0 | PyPI | 70 | 90.0% | 90.0% | — |
+| apache/airflow | Apache-2.0 | PyPI | 70 | 91.4% | 91.4% | — |
 | lobehub/lobe-chat | Apache-2.0 | npm | 70 | 100.0% | 100.0% | — |
 | vercel/next.js | MIT | npm | 70 | 100.0% | 100.0% | `@vercel/og`(MPL-2.0) |
 | facebook/react | MIT | npm | 70 | 95.7% | 95.7% | — |
-| explodinggradients/ragas | Apache-2.0 | PyPI | 68 | 98.5% | 79.4% | `tqdm`(MPL-2.0 AND MIT) |
+| explodinggradients/ragas | Apache-2.0 | PyPI | 68 | 100.0% | 79.4% | `tqdm`(MPL-2.0 AND MIT) |
 | vllm-project/vllm | Apache-2.0 | PyPI | 58 | 98.3% | 77.6% | `tqdm`(MPL-2.0 AND MIT) |
 | fastapi/fastapi | MIT | PyPI | 55 | 100.0% | 90.9% | `CairoSVG`(LGPL-3.0-or-later), `PyGithub`(LGPL-unknown) |
 | matplotlib/matplotlib | PSF-based | PyPI | 52 | 100.0% | 82.7% | `certifi`(MPL-2.0), `pikepdf`(MPL-2.0), `pytest-rerunfailures`(MPL-2.0) |
-| vuejs/core | MIT | npm | 52 | 98.1% | 100.0% | `rollup-plugin-dts`(LGPL-3.0-only) |
+| vuejs/core | MIT | npm | 52 | 100.0% | 100.0% | `rollup-plugin-dts`(LGPL-3.0-only) |
 | open-compass/opencompass | Apache-2.0 | PyPI | 47 | 97.9% | 85.1% | `func-timeout`(LGPL-2.0-only), `fuzzywuzzy`(GPL-2.0-only), `python-Levenshtein`(GPL-2.0-or-later) 等 4 个 |
 | expressjs/express | MIT | npm | 44 | 100.0% | 100.0% | — |
 | axios/axios | MIT | npm | 43 | 100.0% | 100.0% | — |
-| pandas-dev/pandas | BSD-3-Clause | PyPI | 39 | 97.4% | 84.6% | `PyQt5`(GPL-3.0-only), `psycopg2`(LGPL-unknown), `pyxlsb`(LGPL-3.0-or-later) |
-| scrapy/scrapy | BSD-3-Clause | PyPI | 34 | 97.1% | 73.5% | — |
+| pandas-dev/pandas | BSD-3-Clause | PyPI | 39 | 100.0% | 84.6% | `PyQt5`(GPL-3.0-only), `psycopg2`(LGPL-unknown), `pyxlsb`(LGPL-3.0-or-later) |
+| scrapy/scrapy | BSD-3-Clause | PyPI | 34 | 100.0% | 76.5% | — |
 | pallets/flask | BSD-3-Clause | PyPI | 25 | 100.0% | 88.0% | — |
 | run-llama/llama_index | MIT | PyPI | 23 | 100.0% | 95.7% | `codespell`(GPL-2.0-only), `pylint`(GPL-2.0-or-later) |
 | FlowiseAI/Flowise | Apache-2.0 | npm | 23 | 100.0% | 100.0% | — |
@@ -62,20 +62,20 @@
 | microsoft/DeepSpeed | Apache-2.0 | PyPI | 11 | 100.0% | 81.8% | `tqdm`(MPL-2.0 AND MIT) |
 | modelscope/modelscope | Apache-2.0 | PyPI | 7 | 100.0% | 85.7% | `tqdm`(MPL-2.0 AND MIT) |
 
-**整体识别率 97.8%，高可信度判定占比 89.2%，检出风险项 37 条（高危 10 条），26 个项目里 16 个含传染性依赖。**
+**整体识别率 98.3%，高可信度判定占比 89.5%，检出风险项 30 条（高危 10 条），26 个项目里 16 个含传染性依赖。**
 
 #### 识别率这个数字怎么读
 
-97.8% 是一个**混合口径**——它把"没认出来"的原因混在一起统计了，而那些原因性质完全不同：
+98.3% 是一个**混合口径**——它把"没认出来"的原因混在一起统计了，而那些原因性质完全不同：
 
 | 归因 | 含义 | 算不算工具的问题 |
 |---|---|---|
-| 源站未填许可证 | PyPI / npm 上这个包压根没有许可证字段（如 `azure-identity`） | 不算，源站就没有 |
-| 源站无此包 | 私有包、已下架、或需手动下载的模型包（如 spaCy 的 `en-core-web-sm`） | 不算，判定正确 |
-| 知识库未收录 | 源站写了 `ZPL-2.1`，工具的知识库不认 | **算，补进 `LICENSE_DB` 就能降** |
+| 源站未填许可证 | PyPI / npm 上这个包压根没有许可证字段（如 `rouge`，它的 `license` 字段是字面量 `LICENCE.txt`） | 不算，源站就没有 |
+| 源站无此包 | 私有包、已下架、或需手动下载的模型包（如 `apache-airflow-ctl-tests`、spaCy 的 `en-core-web-sm`） | 不算，判定正确 |
+| 知识库未收录 | 源站写了非标准写法（如 `nvidia-sphinx-theme` 的 `NVIDIA LICENSE AGREEMENT`），工具的知识库不认 | **算，补进 `LICENSE_DB` 就能降** |
 | 网络获取失败 | 并发抓取超时（弱网环境常见） | 不算，重跑即可 |
 
-所以报告里同时给出两个数字：**原始识别率**（97.8%）与
+所以报告里同时给出两个数字：**原始识别率**（98.3%）与
 **剔除源站客观无数据后的识别率**（`effective_resolve_rate`）。
 只有「知识库未收录」一类归因于工具自身——这也是唯一值得投入改进的方向。
 详见 [`CHANGELOG.md`](CHANGELOG.md) 的 0.4.0 条目。
@@ -234,13 +234,13 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 190 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
+python test_cases.py      # 196 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表
                           #            + workspace 识别 + 知识库扩容(K) + 未识别归因(L)
                           #            + 跨 Python 版本一致性(M)
 python test_semantic.py   #  87 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 **277 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+共 **283 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
 包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
 `contest/` 被当成测试目录、`BSL-1.1` 被 Boost 规则抢先匹配成宽松许可等。
 

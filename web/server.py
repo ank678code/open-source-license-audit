@@ -32,11 +32,10 @@ HERE = Path(__file__).parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 
-from license_audit import (parse_requirements, parse_pyproject, parse_package_json,
-                           parse_requirements_verbose, parse_pyproject_verbose,
+from license_audit import (parse_requirements_verbose, parse_pyproject_verbose,
                            parse_package_json_verbose,
                            audit, category_of, obligations_of, to_checklist_table,
-                           CATEGORY_CN, LICENSE_DB, VERSION)
+                           CATEGORY_CN, VERSION)
 from semantic_audit import collect_evidence, judge_by_rules, evidence_summary
 
 MAX_BODY = 20 * 1024 * 1024      # 20MB
@@ -57,6 +56,23 @@ def safe_extract(zf, dest):
         if not str(target).startswith(str(dest)):
             raise ValueError(f"压缩包内含非法路径：{m.filename}")
     zf.extractall(dest)
+
+
+def _within(base, target):
+    """target 解析后是否落在 base 之内（跟随符号链接后再判定）。
+
+    v0.5 新增（审查报告 M1）：解压时已拒绝路径穿越，但"跟随 -r 引用"这一步
+    绕过了那层防护——`p.parent / inc` 在 inc 为绝对路径时会被 pathlib 直接
+    替换成该绝对路径（POSIX `/etc/passwd`、Windows `C:/Windows/win.ini`），
+    于是可以读到解压目录外的本机任意文件，并把解析出的包名回显给客户端。
+    这里用解析后路径做围栏，`..` 与符号链接一并覆盖。
+    """
+    try:
+        base_r = Path(base).resolve()
+        tgt_r = Path(target).resolve()
+    except (OSError, RuntimeError):        # RuntimeError: resolve 遇到符号链接环
+        return False
+    return tgt_r == base_r or base_r in tgt_r.parents
 
 
 def detect_and_parse(project_dir):
@@ -80,8 +96,15 @@ def detect_and_parse(project_dir):
                         s = line.strip()
                         if s.lower().startswith(("-r", "--requirement")):
                             inc = s.split(None, 1)[1].strip()
+                            # 只接受解压目录内的相对引用；绝对路径、
+                            # ~ 家目录、盘符相对路径（C:foo）一律忽略
+                            if not inc or Path(inc).is_absolute() \
+                                    or inc[0] in ("~", "\\") or ":" in inc.split("/")[0]:
+                                continue
                             q = (p.parent / inc)
-                            if q.exists():
+                            if not _within(project_dir, q):
+                                continue
+                            if q.exists() and q.is_file():
                                 vpkgs = parse_requirements_verbose(q)
                                 kind = "PyPI"
                                 break

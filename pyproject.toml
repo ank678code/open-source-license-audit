@@ -29,7 +29,7 @@ license-audit-verify = "verify_sample:main"
 license-audit-web = "web.server:main"
 license-audit-recompute = "recompute_scan:main"
 
-# v0.4.1 修正（审查报告 L3「打包不完整」）：
+# 打包完整性修正（第三方审查报告 L3「打包不完整」）：
 # 此前只打包 license_audit / semantic_audit 两个模块，批量扫描脚本、
 # 抽查脚本与 Web 界面都没有分发入口，安装后拿不到，与 README 的
 # 使用说明对不上。

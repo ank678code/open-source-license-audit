@@ -1,5 +1,7 @@
 ﻿# open-source-license-audit
 
+**当前版本 v0.4.3** · MIT 许可 · [变更记录](CHANGELOG.md)
+
 开源许可证合规检查 + 《开源及第三方资源使用清单》生成器。
 
 面向高校开源项目团队与学生开发者：**一条命令查出依赖里藏着的 GPL / AGPL**，并生成一份可以直接提交的合规清单。
@@ -244,7 +246,7 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 |---|---|---|---|---|---|---|
 | requests | 2.34.2 | Apache-2.0 | 作为库调用（未修改源码） | 未修改，仅调用公开 API | 否 | 源码中检出 import 1 次（app.py） |
 | pymupdf | 1.28.2 | AGPL-3.0-only | 作为库调用（未修改源码） | 未修改，仅调用公开 API | 是 | 源码中检出 import 1 次（app.py） |
-| fuzzywuzzy | 3.0.1 | GPL-3.0-only | 修改源码 / 二次开发 | 已二次开发 | 是 | 存在 vendored 副本：vendor/fuzzywuzzy |
+| fuzzywuzzy | 3.0.1 | GPL-2.0-only | 修改源码 / 二次开发 | 已二次开发 | 是 | 存在 vendored 副本：vendor/fuzzywuzzy |
 | scikit-learn | 1.9.1 | BSD-3-Clause | 仅测试环节使用（不随产品分发） | 未修改，仅调用公开 API | 否 | 仅出现在 tests/test_app.py |
 ```
 

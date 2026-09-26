@@ -972,3 +972,61 @@ README 三处 `fuzzywuzzy` 中，开头示例与实测数据表都是 `GPL-2.0-o
 
 **改动文件**：`README.md`、`pyproject.toml`、`check_docs_consistency.py`、
 `CHANGELOG.md`、`FIXES.md`
+
+## 十六、Web 界面：清单本身没被当成产物（v0.4.3 补充）
+
+使用反馈原话：「使用 web 服务提交 zip 文件核查只显示多少个什么危险的那种，
+不能生成相应的清单」。
+
+### 16.1 先跑一遍，确认后端没问题
+
+用仓库自带的 `fixture_project` 打包上传，后端返回得**完全正常**：
+17 条依赖、6 条风险、`checklist_md` 2845 字符的完整 11 列清单。
+所以问题不在「生成」，在「呈现与交付」。
+
+### 16.2 真正的缺陷：同一份清单有三个互不相同的出口
+
+| 出口 | 列数 | 列名 |
+|---|---|---|
+| `checklist_md`（下载 Markdown） | 11 | 资源名称 / 类型 / 版本 / 来源 / 许可证·授权类型 / 识别依据 / 使用方式 / 关键许可义务或限制 / 自主开发边界 / 合规状态 / 开放方式 |
+| 下载 CSV | 8 | 资源名称 / 版本 / 许可证 / 类别 / 使用方式 / 自主开发边界 / 许可义务是否触发 / 判定依据 |
+| 页面表格 | 8 | 同上，字段名还不同（`识别依据` vs `判定依据`） |
+
+Markdown 那份是对的，但它只以**下载**形式存在；**页面上看不到**，
+而页面上唯一能「下载成表格」的 CSV 又**不是**那份清单——用户下到的是一个
+既非竞赛要求、也与 Markdown 对不上的东西。这正是"生成不了清单"的观感来源。
+
+根因：清单的列定义**没有单一来源**。Markdown 由 `to_checklist_table()`
+硬编码在 Python 里；CSV 由前端 JS 另拼；页面表格由第三段 JS 拼。
+三处各写一遍模板，必然漂移。
+
+### 16.3 对策
+
+- **列定义收敛为唯一来源** `license_audit.CHECKLIST_COLUMNS`；
+  新增 `to_checklist_rows(records, judgments)` 产出 (表头, 数据行)，
+  `to_checklist_table()` 改为基于它渲染，新增 `to_checklist_csv()`。
+- Web 的 payload 直接带上 `checklist_columns` / `checklist_rows` /
+  `checklist_csv`，前端**只负责画**，不再自己拼表。
+- 页面把清单提到第一位（交付物就该是主角），待确认单元格标黄并计数。
+
+### 16.4 重构不改行为
+
+`to_checklist_table()` 的输出必须逐字节不变——对 3 组记录 × 3 组 judgments
+共 9 种组合比对了重构前后（从 `git show HEAD:license_audit.py` 载入旧版并存为
+独立模块名），结果**完全一致**。CLI 报告因此不受影响。
+
+### 16.5 本轮验证
+
+| 检查项 | 结果 |
+|---|---|
+| `python test_cases.py` | **277 / 277 通过**（新增 Q 组 13 个） |
+| `python test_semantic.py` | **95 / 95 通过** |
+| 合计 | **372 个用例** |
+| `python check_docs_consistency.py` | 全部一致（版本号 0.4.3） |
+| `pyflakes` | 零告警 |
+| 重构前后 Markdown 输出 | 9 组组合**逐字节一致** |
+| 端到端实跑（fixture zip） | 11 列 × 17 行清单；待确认 0 行 |
+| 端到端实跑（粘贴 4 条） | 11 列 × 4 行；待确认 8 格（4 行 × 2 列）标黄 |
+
+**改动文件**：`license_audit.py`、`web/server.py`、`web/index.html`、
+`test_cases.py`、`README.md`、`CONTRIBUTING.md`、`CHANGELOG.md`、`FIXES.md`

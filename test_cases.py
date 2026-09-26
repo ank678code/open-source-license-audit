@@ -1387,6 +1387,88 @@ check("P11", "import recompute_scan 不得解析宿主脚本的命令行参数",
       _P11.returncode, 0)
 
 
+# ============================================================ Q. 清单出口一致性
+
+print("\nQ. 清单三种出口同源（页面预览 / Markdown / CSV 逐格一致）")
+
+import csv as _csv
+import io as _io
+from license_audit import (to_checklist_rows, to_checklist_csv,
+                           CHECKLIST_COLUMNS)
+
+# Q1-Q2 清单的列定义必须只有一处。此前 Web 端的「下载 CSV」由前端另拼一张
+#        8 列表，与 Markdown 的 11 列既不列名对应也不内容对应——
+#        用户下到的 CSV 根本不是竞赛要求的那份清单，页面上也看不到清单本身。
+check("Q1", "清单列定义应原样来自 CHECKLIST_COLUMNS（唯一来源）",
+      to_checklist_rows([], None)[0], list(CHECKLIST_COLUMNS))
+check("Q2", "《开源及第三方资源使用清单》应为 11 列",
+      len(CHECKLIST_COLUMNS), 11)
+
+_Q_RECS = [
+    _rec("requests", "Apache-2.0"),
+    _rec("pymupdf", "AGPL-3.0-only"),
+    _rec("mystery", "UNKNOWN", status="NOT_FOUND", conf="无"),
+]
+_Q_J = {"requests": {"使用方式": "作为库调用", "自主开发边界": "未修改"}}
+_q_head, _q_rows = to_checklist_rows(_Q_RECS, _Q_J)
+
+# Q3 Markdown 的表头 / 分隔行 / 数据行列数必须一致（少一个 | 就错列）
+_md = to_checklist_table(_Q_RECS, _Q_J)
+_md_lines = _md.splitlines()
+check("Q3", "Markdown 表头 / 分隔行 / 数据行列数应一致",
+      sorted({len(l.strip("|").split("|")) for l in _md_lines}),
+      [len(CHECKLIST_COLUMNS)])
+check("Q4", "Markdown 数据行数应等于记录数",
+      len(_md_lines) - 2, len(_Q_RECS))
+
+# Q5-Q7 CSV 与 Markdown 同源同值。CSV 面向 Excel：缺 BOM 中文列名会乱码，
+#        缺 \r\n 在 Windows 上不换行。
+_csv_txt = to_checklist_csv(_Q_RECS, _Q_J)
+_csv_rows = list(_csv.reader(_io.StringIO(_csv_txt.lstrip("\ufeff"))))
+check("Q5", "CSV 表头应与 Markdown 表头一致",
+      _csv_rows[0], list(CHECKLIST_COLUMNS))
+# Markdown 的单元格带排版空格，CSV 不带——比对前两侧都去掉首尾空白
+check("Q6", "CSV 数据行应与 Markdown 逐格一致",
+      [[c.strip() for c in r] for r in _csv_rows[1:]],
+      [[c.strip() for c in l.strip("|").split("|")] for l in _md_lines[2:]])
+check("Q7", "CSV 应以 BOM 开头且行尾为 \\r\\n（Excel 打开不乱码、不挤成一行）",
+      (_csv_txt.startswith("\ufeff"),
+       _csv_txt.replace("\r\n", "").count("\n")), (True, 0))
+
+# Q8 空清单是最容易漏的边界：统计口径里除以 len(records) 的地方会崩
+check("Q8", "空清单也应给出正确的列数与零数据行",
+      (len(to_checklist_rows([], None)[0]),
+       len(to_checklist_rows([], None)[1])), (11, 0))
+
+# Q9-Q12 页面「所见」必须等于下载「所得」。三条出口都从库函数取数，
+#         任何一处自己拼表都会在这里被拦下。
+sys.path.insert(0, str(_Path(__file__).parent))
+import web.server as _ws
+
+_q_paste = _ws.build_payload("测试项目", "MIT", _Q_RECS, [], None, "粘贴的清单")
+# 粘贴模式没有源码证据，payload 内部的 judgments 为空。
+# 比对基准必须同样传空 judgments，否则比的是"有证据 vs 没证据"的差异，
+# 而不是"两条出口是否同源"——Q6/Q10 第一版就在这上面判错过。
+_h0, _r0 = to_checklist_rows(_Q_RECS, None)
+check("Q9", "Web 预览表头应与库函数一致",
+      _q_paste["checklist_columns"], list(CHECKLIST_COLUMNS))
+check("Q10", "Web 预览行应与库函数的行逐格一致",
+      [[str(c) for c in r] for r in _q_paste["checklist_rows"]],
+      [[str(c) for c in r] for r in _r0])
+check("Q11", "Web 下载的 CSV 应与库函数逐字节一致",
+      _q_paste["checklist_csv"], to_checklist_csv(_Q_RECS, None))
+check("Q12", "Web 的待确认计数应等于清单里实际待确认行数",
+      _q_paste["stats"]["checklist_pending"],
+      sum(1 for r in _r0 if str(r[6]).startswith("待确认")))
+
+# Q13 采集到源码证据后，使用方式不应再是「待确认」——否则上传 zip 毫无意义
+_q_zip = _ws.build_payload("测试项目", "MIT", _Q_RECS, [], 
+                           _Path(__file__).parent / "fixture_project",
+                           "requirements.txt")
+check("Q13", "有源码证据时清单应产出确定的使用方式（待确认行数应减少）",
+      _q_zip["stats"]["checklist_pending"] < len(_q_zip["checklist_rows"]), True)
+
+
 # ============================================================ 汇总
 
 

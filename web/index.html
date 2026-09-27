@@ -259,8 +259,10 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
   t.classList.add('on');
   const isPaste = t.dataset.tab === 'paste';
-  document.getElementById('pane-paste').style.display = isPaste ? '' : 'none';
-  document.getElementById('pane-zip').style.display = isPaste ? 'none' : '';
+  // 显隐一律写明确的 'block'/'none'：用空串 '' 只是删掉内联样式，
+  // 一旦样式表里有 display:none，元素会永远显示不出来（#results 就是这么被藏住的）
+  document.getElementById('pane-paste').style.display = isPaste ? 'block' : 'none';
+  document.getElementById('pane-zip').style.display = isPaste ? 'none' : 'block';
 });
 
 const DEMO = `requests
@@ -491,14 +493,16 @@ function render(d) {
     ? '「使用方式」「自主开发边界」「许可义务是否触发」由证据采集 + 语义判定 + 规则校验三层闭环产出；判定依据列展示了所依据的客观证据。'
     : '粘贴清单模式只做许可证审计。上传项目 zip 可额外获得使用方式、自主开发边界等语义字段判定。';
 
-  document.getElementById('results').style.display = '';
+  // 必须写 'block'：写 '' 只会删掉内联样式，样式表里的 #results{display:none}
+  // 继续生效，结果区（清单表 + 导出区）就永远露不出来
+  document.getElementById('results').style.display = 'block';
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 document.getElementById('toggle-src').onclick = e => {
   const p = document.getElementById('mdsrc');
   const on = p.style.display === 'none';
-  p.style.display = on ? '' : 'none';
+  p.style.display = on ? 'block' : 'none';
   e.target.textContent = on ? '收起 Markdown 源码' : '查看 Markdown 源码';
 };
 

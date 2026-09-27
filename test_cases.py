@@ -1492,6 +1492,42 @@ check("Q17", "Web 返回的报告里嵌的清单应与 checklist_md 逐字节同
       _q_zip["checklist_md"] in _q_zip["report_md"], True)
 
 
+print("\nR. Web 结果区真的显示得出来（CSS 层叠，不只是 innerHTML）")
+
+import re as _re
+from pathlib import Path as _Path
+
+# 这一组守的是一个「数据都对、用户却看不到」的坑：结果区由样式表
+# #results{display:none} 隐藏，JS 用 style.display = '' 去「恢复显示」——
+# 空串只是删掉内联样式，样式表里的 display:none 继续生效，结果区恒隐藏。
+# 清单表、导出区都在里面，用户在页面上只能看到顶部那条「共 N 个依赖」的提示。
+# 以前的检查只看 innerHTML 生成对不对，看不到 CSS 层叠，所以一直没拦住。
+_FRONT = (_Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+
+check("R1", "不得用空串恢复显示（空串只删内联样式，CSS 的 display:none 仍然生效）",
+      _re.findall(r"\.style\.display\s*=\s*''", _FRONT), [])
+
+_FRONT_TIGHT = _re.sub(r"\s+", "", _FRONT)
+check("R2", "结果区由 CSS 隐藏（#results{display:none}），就应由 JS 显式写成 block",
+      ("#results{display:none}" in _FRONT_TIGHT,
+       "getElementById('results').style.display='block'" in _FRONT_TIGHT),
+      (True, True))
+
+check("R3", "清单表与导出区都应位于 #results 容器之后（即同属结果区）",
+      (_FRONT.find('id="ck"') > _FRONT.find('id="results"'),
+       _FRONT.find('id="exports"') > _FRONT.find('id="results"')), (True, True))
+
+# 三个下载产物 + 一键复制都要挂在页面上，否则「有清单」也拿不走。
+# 按钮是渲染时生成的（data-exp="${a.key}"），所以查模板 + 产物定义两处。
+check("R4", "导出区按钮应按产物 key 生成下载动作（data-exp 走模板变量）",
+      'data-exp="${a.key}"' in _FRONT, True)
+for _i, _key in enumerate(("md", "csv", "report"), start=5):
+    check(f"R{_i}", f"三个产物应包含 {_key}（导出区列表定义）",
+          f"key: '{_key}'" in _FRONT, True)
+check("R8", "导出区应提供一键复制清单 Markdown 的入口",
+      "copy-md" in _FRONT, True)
+
+
 # ============================================================ 汇总
 
 

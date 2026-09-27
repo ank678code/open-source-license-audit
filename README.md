@@ -212,6 +212,13 @@ python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 python web/server.py            # 打开 http://127.0.0.1:8770
 ```
 
+端口与监听地址可以用 `--port` / `--host` 指定，也可以由环境变量注入
+（`PORT` / `HOST`）——托管平台上没有命令行参数，靠这两个变量就能直接跑起来：
+
+```bash
+PORT=8080 HOST=0.0.0.0 python web/server.py
+```
+
 两种用法：
 
 - **粘贴依赖清单** —— 直接查许可证，无需上传源码

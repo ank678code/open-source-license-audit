@@ -212,6 +212,13 @@ python semantic_audit.py --project-dir . --audit-json license_audit_report.json
 python web/server.py            # 打开 http://127.0.0.1:8770
 ```
 
+端口与监听地址可以用 `--port` / `--host` 指定，也可以由环境变量注入
+（`PORT` / `HOST`）——托管平台上没有命令行参数，靠这两个变量就能直接跑起来：
+
+```bash
+PORT=8080 HOST=0.0.0.0 python web/server.py
+```
+
 两种用法：
 
 - **粘贴依赖清单** —— 直接查许可证，无需上传源码
@@ -259,14 +266,15 @@ python semantic_audit.py --project-dir . --audit-json report.json --backend open
 ## 测试
 
 ```bash
-python test_cases.py      # 281 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表 + 抽查抓取状态
+python test_cases.py      # 289 个用例：许可证归一化 + 兼容性判定 + 矩阵覆盖 + 版本约束 + 清单表 + 抽查抓取状态
                           #            + workspace 识别(J) + 知识库扩容(K) + 未识别归因(L)
                           #            + 跨 Python 版本一致性(M) + 审查报告修复(N) + 检查清单修复(O)
                           #            + 抽查抓取状态(P) + 清单三种出口同源(Q)
+                          #            + Web 结果区可见性(R)
 python test_semantic.py   #  95 个用例：证据采集 + 测试文件判定 + 防幻觉校验 + 回退行为
 ```
 
-共 **376 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
+共 **384 个用例，全部可离线运行**。**每个用例都对应开发过程中实测发现的真实误判，不是编造的假数据**——
 包括 pandas 的 61KB 许可证正文、torch 的 `WITH` 例外吞掉 `AND`、fuzzywuzzy 被误判为 GPL-3.0、
 `contest/` 被当成测试目录、`BSL-1.1` 被 Boost 规则抢先匹配成宽松许可等。
 

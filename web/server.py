@@ -20,6 +20,7 @@ web/server.py — 可演示的 Web 界面（纯标准库，无第三方依赖）
 import argparse
 import base64
 import io
+import os
 import json
 import shutil
 import sys
@@ -299,8 +300,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8770)
-    ap.add_argument("--host", default="127.0.0.1")
+    # 命令行参数优先；没给就取 PORT / HOST 环境变量（托管平台按约定注入 PORT，
+    # 并要求监听 0.0.0.0），最后退回本地默认值。
+    ap.add_argument("--port", type=int,
+                    default=int(os.environ.get("PORT") or 8770))
+    ap.add_argument("--host", default=os.environ.get("HOST") or "127.0.0.1")
     a = ap.parse_args()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"许可证合规检查 Web 界面已启动：http://{a.host}:{a.port}")

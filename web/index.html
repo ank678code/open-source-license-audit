@@ -85,6 +85,13 @@
 
   .scroll{max-height:440px; overflow:auto; border:1px solid var(--line); border-radius:10px}
 
+  /* zip 上传区：点选 / 拖拽两用 */
+  .dropzone{border:1.5px dashed var(--line-strong); border-radius:10px; padding:22px 18px;
+            text-align:center; cursor:pointer; background:var(--surface); transition:border-color .15s, background .15s}
+  .dropzone:hover{border-color:var(--blue-line)}
+  .dropzone.drag{border-color:var(--blue); background:var(--blue-bg)}
+  .dropzone b{font-size:13.5px}
+
   .msg{padding:12px 16px; border-radius:10px; font-size:13px; margin-bottom:16px; display:none}
   .msg.err{display:block; background:var(--red-bg); border:1px solid var(--red-line); color:var(--red)}
   .msg.ok{display:block; background:var(--green-bg); border:1px solid var(--green-line); color:var(--green)}
@@ -214,10 +221,16 @@ tqdm</textarea>
     </div>
 
     <div id="pane-zip" style="display:none">
-      <label>项目压缩包（.zip，建议小于 20MB）</label>
-      <input type="file" id="zipfile" accept=".zip" style="font-size:13px">
-      <p class="hint" style="margin:10px 0 0">
-        上传后会解压到临时目录，自动查找依赖清单并扫描源码，额外判定「使用方式」「自主开发边界」「许可义务是否触发」——例如区分「只是 import 了一个 GPL 包」和「fork 了它的源码做二次开发」。
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="选择或拖入 zip 压缩包">
+        <b>点击选择，或把 .zip 拖到这里</b>
+        <div class="hint" style="margin-top:4px">≤ 20MB；不必删掉 .git，但删掉 node_modules / 虚拟环境会快很多</div>
+      </div>
+      <input type="file" id="zipfile" accept=".zip" style="display:none">
+      <p id="zipinfo" class="hint" style="margin:10px 0 0"></p>
+      <p class="hint" style="margin:6px 0 0">
+        会自动在<b>根目录及子目录</b>中查找 requirements.txt / pyproject.toml / package.json 并扫描源码，
+        额外判定「使用方式」「自主开发边界」「许可义务是否触发」——例如区分「只是 import 了一个 GPL 包」和「fork 了它的源码做二次开发」。
       </p>
     </div>
 
@@ -355,10 +368,11 @@ document.getElementById('go').onclick = async () => {
     body.kind = document.getElementById('kind').value;
     if (!body.manifest.trim()) return show('err', '请先填入依赖清单内容');
   } else {
-    const f = document.getElementById('zipfile').files[0];
-    if (!f) return show('err', '请先选择要上传的 zip 文件');
-    if (f.size > 20 * 1024 * 1024) return show('err', '文件超过 20MB 上限');
-    show('info', '正在读取压缩包…');
+    const f = ZIP_FILE || document.getElementById('zipfile').files[0];
+    if (!f) return show('err', '请先点击选择，或把 .zip 拖入上传区');
+    if (f.size > 20 * 1024 * 1024) return show('err', '文件超过 20MB 上限（当前 ' +
+      (f.size / 1048576).toFixed(1) + 'MB）。删掉 node_modules / 虚拟环境后再压缩通常会小很多');
+    show('info', '正在读取 ' + f.name + '（' + humanSize(f.size) + '）…');
     const b64 = await new Promise(res => {
       const r = new FileReader();
       r.onload = () => res(r.result);
@@ -411,6 +425,44 @@ function humanSize(text) {
   const b = new Blob([text || '']).size;
   return b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' KB';
 }
+
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  return n < 1024 ? n + ' B'
+    : n < 1048576 ? (n / 1024).toFixed(0) + ' KB'
+    : (n / 1048576).toFixed(1) + ' MB';
+}
+
+/* ---------- zip 上传：点选 / 拖拽，选中后立即给反馈并做体积预检 ---------- */
+let ZIP_FILE = null;
+
+function setZip(f) {
+  ZIP_FILE = null;
+  document.getElementById('zipinfo').textContent = '';
+  if (!f) return;
+  if (!/\.zip$/i.test(f.name)) { show('err', '请选择 .zip 压缩包（当前：' + f.name + '）'); return; }
+  if (f.size > 20 * 1024 * 1024) {
+    show('err', '「' + f.name + '」超过 20MB 上限（' + fmtBytes(f.size) +
+      '）。删掉 node_modules / 虚拟环境后再压缩通常会小很多');
+    return;
+  }
+  ZIP_FILE = f;
+  document.getElementById('zipinfo').textContent =
+    '已选择：' + f.name + '（' + fmtBytes(f.size) + '）';
+}
+
+const _dz = document.getElementById('dropzone');
+const _zf = document.getElementById('zipfile');
+_dz.addEventListener('click', () => _zf.click());
+_dz.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _zf.click(); }
+});
+_zf.addEventListener('change', () => setZip(_zf.files[0]));
+['dragover', 'dragenter'].forEach(ev =>
+  _dz.addEventListener(ev, e => { e.preventDefault(); _dz.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev =>
+  _dz.addEventListener(ev, e => { e.preventDefault(); _dz.classList.remove('drag'); }));
+_dz.addEventListener('drop', e => setZip(e.dataTransfer.files[0]));
 
 function renderExports() {
   if (!LAST) return;
@@ -465,9 +517,16 @@ function render(d) {
       + `「使用方式」「自主开发边界」已依据源码证据判定，可直接提交。`;
   }
   document.getElementById('mdsrc').textContent = d.checklist_md || '';
-  document.getElementById('cknote').textContent =
-    '页面表格 / Markdown / CSV 三种出口来自同一份数据，内容逐格一致；'
+  // 数据来源：用了 zip 里哪份清单、还有哪些备选——zip 上传最常见的疑问就是"它看了我哪个文件"
+  let srcNote = '页面表格 / Markdown / CSV 三种出口来自同一份数据，内容逐格一致；'
     + '「待确认」的单元格表示尚未采集到源码证据，需要人工补填或改用 zip 上传。';
+  const cands = d.manifest_candidates || [];
+  if (d.manifest && cands.length) {
+    srcNote = '数据来源：zip 内的 ' + d.manifest + '（检测到 ' + cands.length
+      + ' 份依赖清单' + (cands.length > 1 ? '，已使用优先级最高的一份：' + cands[0] : '')
+      + '）。' + srcNote;
+  }
+  document.getElementById('cknote').textContent = srcNote;
 
   // 导出区的文件名前缀默认取项目名，三个产物的规模与体积在这里算出来
   document.getElementById('fname').value = d.project || '我的开源项目';

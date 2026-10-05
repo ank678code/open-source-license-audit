@@ -20,11 +20,24 @@
     font-size:14px; line-height:1.7; -webkit-font-smoothing:antialiased}
   .wrap{max-width:1040px; margin:0 auto; padding:36px 24px 72px}
   header{margin-bottom:26px}
-  h1{font-size:22px; font-weight:600; margin:0 0 4px; letter-spacing:-.2px}
-  .sub{color:var(--ink-2); font-size:13px; margin:0}
+  h1{font-size:26px; font-weight:700; margin:0 0 6px; letter-spacing:-.4px}
+  .sub{color:var(--ink-2); font-size:13.5px; margin:0 0 14px}
+  .chips{display:flex; gap:8px; flex-wrap:wrap}
+  .chip{font-size:12px; color:var(--ink-2); background:var(--card); border:1px solid var(--line);
+        border-radius:999px; padding:4px 12px}
+  .chip b{color:var(--ink); font-weight:600}
 
   .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px 24px; margin-bottom:18px}
   .card h2{font-size:14px; font-weight:600; margin:0 0 16px; color:var(--ink)}
+  .card-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px}
+  .card-head h2{margin:0}
+  /* 审计完成后把输入卡收成一条，把屏幕让给结果 */
+  .card.collapsed .card-body{display:none}
+  #inputcard.collapsed{padding-bottom:16px}
+  #inputcard.collapsed .card-head{margin-bottom:0}
+  button.mini{background:transparent; color:var(--blue); border:1px solid var(--blue-line);
+              padding:5px 12px; font-size:12.5px}
+  button.mini:hover{background:var(--blue-bg)}
 
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
   label{display:block; font-size:12.5px; color:var(--ink-2); margin-bottom:6px}
@@ -90,7 +103,8 @@
   .ck-wrap thead th:first-child, .ck-wrap tbody td:first-child{
     position:sticky; left:0; background:var(--card); z-index:1}
   .ck-wrap thead th:first-child{background:var(--surface)}
-  td.pending{background:var(--amber-bg); color:var(--amber); white-space:nowrap}
+  td.pending{background:#fbf7ec; color:var(--amber); white-space:nowrap}
+  #ck tbody tr:hover td, #tbl tbody tr:hover td, .exp-tbl tbody tr:hover td{background:#fafbfd}
   .status{border:1px solid var(--green-line); background:var(--green-bg); color:var(--green);
           border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:16px}
   .status.warn{border-color:var(--amber-line); background:var(--amber-bg); color:var(--amber)}
@@ -121,6 +135,7 @@
   .exp-tbl .fmt{white-space:nowrap; color:var(--ink-2)}
   @media (max-width:720px){ .export .filerow input[type=text]{max-width:100%} }
   footer{margin-top:34px; padding-top:16px; border-top:1px solid var(--line); color:var(--ink-3); font-size:12px}
+  footer a{color:var(--ink-2)}
   @media (max-width:720px){ .grid2{grid-template-columns:1fr} }
 </style>
 </head>
@@ -130,12 +145,22 @@
   <header>
     <h1>开源许可证合规检查</h1>
     <p class="sub">扫描依赖树，识别 GPL / AGPL 等传染性许可，生成可直接提交的《开源及第三方资源使用清单》</p>
+    <div class="chips">
+      <span class="chip"><b>零第三方依赖</b>，单文件部署</span>
+      <span class="chip">PyPI / npm <b>实时元数据</b></span>
+      <span class="chip">输出<b>中文合规字段</b>，可直接提交</span>
+      <span class="chip"><b>MIT</b> 开源</span>
+    </div>
   </header>
 
   <div id="msg" class="msg"></div>
 
-  <div class="card">
-    <h2>输入</h2>
+  <div class="card" id="inputcard">
+    <div class="card-head">
+      <h2>检查输入</h2>
+      <button class="mini" id="inputtoggle" style="display:none">修改输入，重新检查</button>
+    </div>
+    <div class="card-body">
     <div class="grid2">
       <div>
         <label>项目名称</label>
@@ -185,6 +210,7 @@ scikit-learn
 chardet
 psycopg2-binary
 tqdm</textarea>
+      <p class="hint" style="margin:8px 0 0">支持 <code>包名</code>、<code>包名==版本</code>、<code>&gt;=</code> 约束与注释行，一行一个依赖。</p>
     </div>
 
     <div id="pane-zip" style="display:none">
@@ -199,6 +225,7 @@ tqdm</textarea>
       <button id="go">开始审计</button>
       <button class="ghost" id="loaddemo">载入真实项目示例</button>
       <span class="hint">数据来自 PyPI / npm registry 实时元数据</span>
+    </div>
     </div>
   </div>
 
@@ -249,6 +276,7 @@ tqdm</textarea>
 
   <footer>
     开源许可证合规检查工具 · MIT License · 不替代法律意见，涉及商业分发请咨询专业人士
+    · <a href="https://github.com/ank678code/open-source-license-audit" target="_blank" rel="noopener">GitHub 仓库</a>
   </footer>
 </div>
 
@@ -264,6 +292,14 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.getElementById('pane-paste').style.display = isPaste ? 'block' : 'none';
   document.getElementById('pane-zip').style.display = isPaste ? 'none' : 'block';
 });
+
+// 出结果后把输入卡收成一条；要改输入时再展开
+document.getElementById('inputtoggle').onclick = () => {
+  const c = document.getElementById('inputcard');
+  const collapsed = c.classList.toggle('collapsed');
+  document.getElementById('inputtoggle').textContent =
+    collapsed ? '修改输入，重新检查' : '收起';
+};
 
 const DEMO = `requests
 flask
@@ -389,7 +425,7 @@ function renderExports() {
       <td><div class="name">《${esc(a.name)}》</div><div class="sub">${esc(a.hint)}</div></td>
       <td class="fmt">${esc(a.fmt)}</td>
       <td><div>${esc(scale)}</div><div class="size">${humanSize(text)}</div></td>
-      <td><button class="ghost" data-exp="${a.key}">下载</button></td></tr>`;
+      <td><button data-exp="${a.key}">下载</button></td></tr>`;
   }).join('');
   document.querySelectorAll('[data-exp]').forEach(b => {
     b.onclick = () => {
@@ -496,6 +532,10 @@ function render(d) {
   // 必须写 'block'：写 '' 只会删掉内联样式，样式表里的 #results{display:none}
   // 继续生效，结果区（清单表 + 导出区）就永远露不出来
   document.getElementById('results').style.display = 'block';
+  // 出结果后把输入卡收起来，第一屏直接就是清单；想改输入点卡片右上角
+  document.getElementById('inputcard').classList.add('collapsed');
+  document.getElementById('inputtoggle').style.display = 'inline-block';
+  document.getElementById('inputtoggle').textContent = '修改输入，重新检查';
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

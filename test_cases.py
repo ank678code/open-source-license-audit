@@ -1527,6 +1527,101 @@ for _i, _key in enumerate(("md", "csv", "report"), start=5):
 check("R8", "导出区应提供一键复制清单 Markdown 的入口",
       "copy-md" in _FRONT, True)
 
+# zip 上传区（S 组测后端行为，这里守前端结构：点选/拖拽入口与文件反馈要存在）
+check("R9", "zip 上传区应有点选/拖拽入口、文件反馈与选中处理逻辑",
+      all(k in _FRONT for k in ('id="dropzone"', 'id="zipinfo"',
+                                "addEventListener('drop'", "function setZip(")), True)
+
+
+print("\nS. zip 上传：清单发现、根目录下钻与多份清单的取舍")
+
+import tempfile as _tfd
+_S_WS = None
+try:
+    import web.server as _S_WS
+except Exception:
+    _S_WS = None
+
+if _S_WS:
+    _S_ROOT = _Path(_tfd.mkdtemp())
+
+    def _S_MK(rel, content):
+        p = _S_ROOT / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    # S1 清单在子目录（src 布局），根目录没有 —— 旧版只扫根目录，直接报"没找到"，
+    # 这是用户反馈 zip 上传不好用的主要原因
+    _S_MK("src/requirements.txt", "requests==2.31.0\n")
+    _S_REL, _S_PKGS, _, _, _ = _S_WS.detect_and_parse(_S_ROOT)
+    check("S1", "清单在子目录（src/requirements.txt）应被发现",
+          (_S_REL, _S_PKGS), ("src/requirements.txt", ["requests"]))
+
+    # S2 根目录与子目录各有清单 —— 根目录优先
+    _S_MK("pyproject.toml",
+          '[project]\nname="x"\ndependencies=["flask==3.0.0"]\n')
+    _S_REL, _S_PKGS, _, _, _ = _S_WS.detect_and_parse(_S_ROOT)
+    check("S2", "根目录与子目录各有清单时应优先根目录",
+          (_S_REL, _S_PKGS), ("pyproject.toml", ["flask"]))
+
+    # S3 根目录没有时，requirements 应排在 package.json 之前（候选表次序）
+    (_S_ROOT / "pyproject.toml").unlink()
+    (_S_ROOT / "src" / "requirements.txt").unlink()
+    _S_MK("src/requirements.txt", "requests==2.31.0\n")
+    _S_MK("src/package.json", '{"dependencies":{"express":"^4.18.0"}}')
+    _S_REL, _S_PKGS, _S_KIND, _, _ = _S_WS.detect_and_parse(_S_ROOT)
+    check("S3", "子目录同时有 requirements 与 package.json 时应按候选次序取前者",
+          (_S_REL, _S_KIND, _S_PKGS),
+          ("src/requirements.txt", "PyPI", ["requests"]))
+
+    # S4 node_modules / 隐藏目录里的清单不是"项目根"，不应采纳
+    _S_MK("node_modules/left-pad/requirements.txt", "left-pad==1.3.0\n")
+    _S_MK(".git/requirements.txt", "evil==1.0.0\n")
+    _S_REL, _S_PKGS, _, _, _ = _S_WS.detect_and_parse(_S_ROOT)
+    check("S4", "node_modules 与隐藏目录里的清单不应被当作项目清单",
+          (_S_REL, _S_PKGS), ("src/requirements.txt", ["requests"]))
+
+    # S5 压缩包里只有一层根目录时逐层下钻（此前只下钻一层）
+    _S_NEST = _Path(_tfd.mkdtemp())
+    (_S_NEST / "repo").mkdir()
+    (_S_NEST / "repo" / "release").mkdir()
+    (_S_NEST / "repo" / "release" / "requirements.txt").write_text(
+        "numpy==1.26.4\n", encoding="utf-8")
+    _S_DRILLED = _S_WS.drill_into_single_root(_S_NEST)
+    _S_REL, _S_PKGS, _, _, _ = _S_WS.detect_and_parse(_S_DRILLED)
+    check("S5", "两层单根目录应逐层下钻并找到清单",
+          (_S_DRILLED.name, _S_REL, _S_PKGS),
+          ("release", "requirements.txt", ["numpy"]))
+
+    # S6 根目录清单是空的（只有注释），子目录里另有有效清单 —— 空的不算数，应继续找
+    _S_EMPTY = _Path(_tfd.mkdtemp())
+    (_S_EMPTY / "requirements.txt").write_text("# 只有注释\n", encoding="utf-8")
+    (_S_EMPTY / "app").mkdir()
+    (_S_EMPTY / "app" / "package.json").write_text(
+        '{"dependencies":{"express":"^4.18.0"}}', encoding="utf-8")
+    _S_REL, _S_PKGS, _, _, _ = _S_WS.detect_and_parse(_S_EMPTY)
+    check("S6", "根目录清单解析为空时应继续尝试子目录的清单",
+          (_S_REL, _S_PKGS), ("app/package.json", ["express"]))
+
+    # S7 完全没有清单：发现结果应为空（错误信息由接口层据此生成）
+    _S_NONE = _Path(_tfd.mkdtemp())
+    (_S_NONE / "main.py").write_text("print(1)\n", encoding="utf-8")
+    check("S7", "没有任何清单时应返回空结果（供接口层生成带指引的报错）",
+          (_S_WS.discover_manifests(_S_NONE),
+           _S_WS.detect_and_parse(_S_NONE)[1]), ([], []))
+
+    # S8 唯一的子目录是 node_modules 时不应下钻——否则依赖包里的清单会被当成项目清单
+    _S_JUNK = _Path(_tfd.mkdtemp())
+    (_S_JUNK / "node_modules" / "x").mkdir(parents=True)
+    (_S_JUNK / "node_modules" / "x" / "requirements.txt").write_text(
+        "left-pad==1.3.0\n", encoding="utf-8")
+    _S_D = _S_WS.drill_into_single_root(_S_JUNK)
+    check("S8", "唯一子目录是 node_modules 时不应下钻",
+          (_S_D == _S_JUNK, _S_WS.detect_and_parse(_S_JUNK)[1]), (True, []))
+else:
+    check("S1", "zip 清单发现（web 模块不可导入，跳过）", "skipped", "skipped")
+
 
 # ============================================================ 汇总
 

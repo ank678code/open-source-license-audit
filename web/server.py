@@ -89,30 +89,83 @@ def safe_extract(zf, dest):
 # 避免两个入口各写一份、日后只改一处导致防护宽度不一致。此处不再单独实现。
 
 
+MANIFEST_SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "env", "__pycache__",
+                      ".idea", ".vscode", "dist", "build", "site-packages"}
+
+
+def discover_manifests(project_dir, max_depth=3):
+    """按优先级列出项目里的依赖清单，返回 [(相对路径, 绝对路径), ...]。
+
+    根目录在前（MANIFEST_CANDIDATES 顺序），子目录按层加深排在其后；
+    限 max_depth 层，跳过 node_modules / .git 等永远不可能是"项目根"的目录。
+    注意返回的是**全部候选**而不是第一个命中——根目录清单可能是空的或
+    解析不出依赖，此时应继续尝试子目录里的（S6 用例守的就是这个行为）。
+    此前只在根目录找——src/、backend/ 这类常见布局的 zip 会直接报
+    「没找到依赖清单」，是用户反馈 zip 上传不好用的主要原因。
+    """
+    hits = []
+    for rel in MANIFEST_CANDIDATES:
+        p = project_dir / rel
+        if p.is_file():
+            hits.append((rel, p))
+
+    def walk(d, depth, prefix):
+        if depth > max_depth:
+            return
+        for child in sorted(d.iterdir()):
+            if not child.is_dir() or child.name in MANIFEST_SKIP_DIRS:
+                continue
+            if child.name.startswith("."):
+                continue
+            for rel in MANIFEST_CANDIDATES:
+                p = child / rel
+                if p.is_file():
+                    hits.append((prefix + child.name + "/" + rel, p))
+            walk(child, depth + 1, prefix + child.name + "/")
+
+    walk(project_dir, 1, "")
+    return hits
+
+
+def drill_into_single_root(project_dir):
+    """压缩包里只有一层根目录时逐层下钻（GitHub 导出的 zip、先建文件夹再压缩都常见）。
+
+    此前只下钻一层，两层嵌套的包（如 repo/main/src）仍会找不到清单。
+    注意：唯一的子目录是 node_modules / .git 这类目录时**不能**下钻——
+    否则会把依赖包里的清单当成项目清单（S8 用例守这个行为）。
+    """
+    d = Path(project_dir)
+    while True:
+        entries = list(d.iterdir())
+        subs = [x for x in entries if x.is_dir()
+                and x.name not in MANIFEST_SKIP_DIRS and not x.name.startswith(".")]
+        if len(subs) == 1 and not any(x.is_file() for x in entries):
+            d = subs[0]
+        else:
+            return d
+
+
 def detect_and_parse(project_dir):
     """在解压后的项目里找依赖清单并解析。
 
     返回 (清单相对路径, 包名列表, 生态, 版本约束表, 已排除的工作区内部包)。
-    `-r` 引用由 parse_requirements_verbose 统一跟随（含目录围栏、环路与深度
-    保护），不再在这里自己写一份——此前此处只跟随一层且取首个非空结果，
-    与 scan_projects.py 的递归跟随行为不一致（检查清单 P3-4/P3-5）。
+    清单发现交给 discover_manifests：根目录优先，没有时搜 3 层内子目录；
+    `-r` 引用由 parse_requirements_verbose 统一跟随（含目录围栏、环路
+    与深度保护），不再在这里自己写一份。
     """
-    for rel in MANIFEST_CANDIDATES:
-        p = project_dir / rel
-        if not p.exists():
-            continue
+    for rel, path in discover_manifests(project_dir):
         ws_deps = []
         try:
             if rel.endswith(".toml"):
-                vpkgs = parse_pyproject_verbose(p)
+                vpkgs = parse_pyproject_verbose(path)
                 kind = "PyPI"
             elif rel.endswith(".json"):
-                vpkgs = parse_package_json_verbose(p)
+                vpkgs = parse_package_json_verbose(path)
                 kind = "npm"
                 # monorepo 内部包不发布到 npm，查了必然 404 并被记成"源站无此包"
                 vpkgs, ws_deps = exclude_workspace_deps(vpkgs)
             else:
-                vpkgs = parse_requirements_verbose(p, include_root=project_dir)
+                vpkgs = parse_requirements_verbose(path, include_root=project_dir)
                 kind = "PyPI"
         except Exception:
             continue
@@ -248,18 +301,27 @@ class Handler(BaseHTTPRequestHandler):
                     # 此前一律落到兜底 except 返回 500，语义不准也不好排查
                     return self._send(400, json.dumps({"error": f"压缩包被拒绝：{e}"}))
                 proj = Path(tmp)
-                # 若压缩包内只有一层根目录，自动下钻
-                subs = [x for x in proj.iterdir() if x.is_dir()]
-                files = [x for x in proj.iterdir() if x.is_file()]
-                if len(subs) == 1 and not files:
-                    proj = subs[0]
+                # 压缩包里"只有一层根目录"时逐层下钻（GitHub 导出的 zip、
+                # 先建文件夹再压缩的习惯都常见，两层嵌套也会遇到）
+                proj = drill_into_single_root(proj)
                 rel, pkgs, src, specs, ws = detect_and_parse(proj)
                 if not pkgs:
-                    return self._send(400, json.dumps(
-                        {"error": "压缩包里没找到可解析的依赖清单（requirements.txt / pyproject.toml / package.json）"}))
+                    found = discover_manifests(proj)
+                    if found:
+                        return self._send(400, json.dumps({"error":
+                            "找到依赖清单但没能解析出依赖：%s。"
+                            "可能文件为空，或清单格式不被支持。"
+                            % "、".join(r for r, _ in found)}))
+                    return self._send(400, json.dumps({"error":
+                        "压缩包里没找到可解析的依赖清单。已检查根目录及 3 层内子目录，"
+                        "支持：requirements.txt、requirements/*.txt、pyproject.toml、"
+                        "package.json。常见原因：清单在更深处、压缩包里没有依赖声明、"
+                        "或上传的不是项目压缩包。"}))
                 records, findings = audit(sorted(set(pkgs))[:MAX_PKGS], plic, src,
                                           version_specs=specs, jobs=JOBS)
                 payload = build_payload(pname, plic, records, findings, proj, rel, ws)
+                # 让前端能说明「用了哪份清单、还有哪些备选」
+                payload["manifest_candidates"] = [r for r, _ in discover_manifests(proj)]
             else:
                 text = req.get("manifest") or ""
                 if not text.strip():
